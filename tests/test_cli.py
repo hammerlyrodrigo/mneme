@@ -1,5 +1,7 @@
 import io
+import itertools
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -7,7 +9,21 @@ from conftest import run_git
 from mneme import __version__
 from mneme.cli import main
 from mneme.init import BLOCK_END, BLOCK_START, GITATTRIBUTES_LINE
+from mneme.model import format_ts
 from mneme.store import Store
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """Each timestamp one second after the last, so order never depends on runner speed."""
+    ticks = itertools.count()
+    start = datetime(2026, 11, 2, 10, 0, 0, tzinfo=timezone.utc)
+
+    def fake_now() -> str:
+        return format_ts(start + timedelta(seconds=next(ticks)))
+
+    monkeypatch.setattr("mneme.cli.now_utc", fake_now)
+    monkeypatch.setattr("mneme.store.now_utc", fake_now)
 
 
 @pytest.fixture
@@ -313,7 +329,7 @@ def test_list(mem, capsys):
     _, out, _ = run(capsys, "list", "reminder", "--status", "done")
     assert "second" in out and "first" not in out
     _, out, _ = run(capsys, "list", "reminder", "--all")
-    assert "second" in out and "first" in out
+    assert out.index("second") < out.index("first")
 
 
 # --- changes ----------------------------------------------------------------
