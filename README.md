@@ -9,5 +9,5 @@ Status: pre-release, under construction. See [HANDOVER.md](HANDOVER.md).
 ## Install
 
 ```sh
-uv tool install git+https://github.com/<owner>/mneme
+uv tool install git+https://github.com/hammerlyrodrigo/mneme
 ```

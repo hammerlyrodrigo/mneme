@@ -153,8 +153,7 @@ README.md  LICENSE  CHANGELOG.md
     scalars and inline `[a, b]` lists only, with our own small parser.
   - **No viewer in v0.1.** Ship the CLI and `migrate` first, port `serve` in
     v0.2, and keep `legacy/` until then.
-  - **MIT license, with a GitHub repo.** Running `gh` needs `gh auth login`
-    first, and we still have to confirm public or private before creating it.
+  - **MIT license**, with the repo at github.com/hammerlyrodrigo/mneme.
 - Git on this machine has `core.autocrlf` on. The repo uses `.gitattributes`
   to keep LF, and the parser must accept CRLF entry files.
 
@@ -162,8 +161,8 @@ README.md  LICENSE  CHANGELOG.md
 
 1. ~~Settle the open decisions~~ (done).
 2. ~~`git init -b main`, the baseline commit and the scaffold~~ (done).
-   Still to do: create the GitHub repo. That needs `gh auth login` and a
-   public or private choice from the user.
+   GitHub: `git@github.com:hammerlyrodrigo/mneme.git` (`origin`, pushed over
+   SSH). `gh` is not logged in on this machine.
 3. ~~`model.py`, `store.py`, `root.py` with tests~~ (done; 76 tests pass on
    3.11 and 3.12). Choices made while building them:
    - Frontmatter keys in write order: `id type title status created updated
