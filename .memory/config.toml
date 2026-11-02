@@ -1,0 +1,12 @@
+# Mneme configuration. Every key is optional.
+
+# The branch whose handover is shared by everyone.
+# Default: what origin/HEAD points at, else "main".
+# main_branch = "main"
+
+# Folders scanned by `mneme brief` for [NEEDS CLARIFICATION: ...] markers.
+# Default: ["specs"]. Set to [] to turn the scan off.
+# spec_dirs = ["specs"]
+
+# Author used when neither --author nor MNEME_AUTHOR is set.
+# default_author = ""
