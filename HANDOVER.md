@@ -135,8 +135,12 @@ README.md  LICENSE  CHANGELOG.md
 `init [--write-agents] [--claude]` · `new <type>` (flags or `--stdin` JSON) ·
 `set <id> --status` · `resolve <id> --answer [--decision]` · `done <id>` ·
 `supersede <old> --by <new>` · `handover --summary --done --next [--blockers]`
-· `brief` · `search` · `list <type> [--status]` · `show <id>` · `refs <path>` ·
-`check` · `migrate --from <entries.jsonl>` · `serve [--open]` · `dream`
+· `brief` · `recall <query> | --path <p>` · `list <type> [--status]` ·
+`show <id>` · `changes [--base] [--markdown]` · `check` · `compact` ·
+`migrate --from <entries.jsonl>` · `serve [--open]` (v0.2) · `dream`
+
+(`search` and `refs` were replaced by `recall`; see "Memory is retrieved
+actively" below.)
 
 ## Decisions made
 
@@ -156,6 +160,57 @@ README.md  LICENSE  CHANGELOG.md
   - **MIT license**, with the repo at github.com/hammerlyrodrigo/mneme.
 - Git on this machine has `core.autocrlf` on. The repo uses `.gitattributes`
   to keep LF, and the parser must accept CRLF entry files.
+
+### Memory is retrieved actively, not loaded passively (2026-11-02)
+
+The user does not want memory to fill an agent's context. Files on disk
+cost no tokens; only what commands print does. So the CLI is designed around
+small, on-demand output. This replaces the `search` and `refs` lines in
+"Settled design" and "Commands" above.
+
+- **`brief` has a fixed budget** (about 20–40 lines whatever the entry
+  count). It prints this branch's handover in full, and everything else as
+  one line each: `id title` for open questions, due reminders and the most
+  recent decisions (for example 3 of 41), plus a pointer to `show` and
+  `recall`.
+- **`recall <query>`** replaces `search`. It returns the top few matches as
+  one-liners, ranked without vector search: term matches in title, tags and
+  body; active before inactive; newer before older.
+- **`recall --path <file-or-dir>`** replaces `refs`. It returns entries whose
+  `links` cover that path (a directory link covers files under it; `#anchor`
+  is ignored for matching). This works for code and specs alike, and lets an
+  agent recall what applies to a file before editing it.
+- **`show <id>`** is the only command that prints a full entry.
+- **Inactive entries** (superseded, resolved, done, archived, dropped) are
+  hidden from `brief` and `recall` unless `--all` is passed.
+- **Agent rule** (in the AGENTS.md block and the Claude skill): don't read
+  `.memory/` directly; use `brief`, `recall` and `show`. Record decisions
+  and learnings when they happen, briefly.
+
+### A branch's memory is part of its PR (2026-11-02)
+
+Per-entry files make a branch's decisions and learnings readable in its PR.
+That's treated as a feature, not as noise.
+
+- **`changes [--base <branch>] [--markdown]`** lists entries added or changed
+  on this branch compared with the main branch
+  (`git diff --name-status BASE...HEAD -- .memory/`, plus uncommitted files). `--markdown` prints a
+  block for the PR description: decisions, learnings, and questions still open.
+- `brief` on a non-main branch adds one line: "This branch so far: …".
+- **Collapsing diffs is opt-in**: `init --hide-in-diffs` adds
+  `.memory/** linguist-generated=true` to `.gitattributes` (GitHub collapses
+  those files in PR diffs). It's not the default, because these entries are
+  meant to be read.
+
+### Open product question: file count (2026-11-02)
+
+The user worries that hundreds of files under `.memory/` won't be acceptable
+to other developers. Planned answer: **`compact`**, run on the main branch
+only. It folds inactive entries into one archive file per type
+(`.memory/archive/<type>s.md`), so only live entries stay as separate
+files. `show` and `recall --all` still find archived entries. Build it after
+the core commands, and decide after using Mneme on Demiurge and here for a
+few weeks whether it's enough.
 
 ## Next steps
 
@@ -181,7 +236,8 @@ README.md  LICENSE  CHANGELOG.md
    - The handover file has frontmatter `branch`, `updated` and `author`, and a
      body with `HANDOVER_SECTIONS`. It is not an `Entry` and has no ID.
    - A conflicted entry file (git conflict markers) loads as a problem, not a crash.
-4. Build the commands (`cli.py`), then `check`, `brief`, `refs`. Test that
+4. Build the commands (`cli.py`), then `check`, `brief`, `recall`, `changes`;
+   later `compact`. Test that
    `init --write-agents` is idempotent and keeps the rest of AGENTS.md.
    Author resolution: `--author`, then `MNEME_AUTHOR`, then config
    `default_author`, then `unspecified`.
