@@ -161,15 +161,31 @@ README.md  LICENSE  CHANGELOG.md
 ## Next steps
 
 1. ~~Settle the open decisions~~ (done).
-2. ~~`git init -b main` and the baseline commit~~ (done, `c82f921`). Scaffold
-   `pyproject.toml`, `src/mneme`, `tests` and CI, then create the GitHub repo.
-3. Build `model.py`, `store.py` and `root.py` with tests first, including:
-   - a two-branch scenario in a throwaway git repo: adding entries on both
-     sides merges cleanly; editing the same status on both conflicts;
-   - ID collision refused; a corrupt file is reported, not fatal;
-   - `init --write-agents` is idempotent and keeps the rest of AGENTS.md;
-   - UTC ordering; Windows paths; branch names containing `/`.
-4. Build the commands, then `check`, `brief`, `refs`.
+2. ~~`git init -b main`, the baseline commit and the scaffold~~ (done).
+   Still to do: create the GitHub repo. That needs `gh auth login` and a
+   public or private choice from the user.
+3. ~~`model.py`, `store.py`, `root.py` with tests~~ (done; 76 tests pass on
+   3.11 and 3.12). Choices made while building them:
+   - Frontmatter keys in write order: `id type title status created updated
+     author branch tags links supersedes resolved_by`. Unknown keys are kept
+     on round-trip. Every value is a string; nothing is coerced.
+   - Type-specific fields are `## Section`s in the body (see `SECTIONS` in
+     `model.py`). A note has a free body.
+   - `superseded_by` is never stored. Derive it from the newer entry's
+     `supersedes`, so a supersede writes the new file and flips the old one's
+     status, and nothing else.
+   - Statuses per type are in `model.STATUSES`. Legacy `consolidated`,
+     `obsolete` and `stale` become `superseded` or `archived` in `migrate`.
+   - `save()` stamps `updated`, so editing the same entry on two branches
+     always conflicts on that line. That's intended: two edits to one entry
+     deserve a human look.
+   - The handover file has frontmatter `branch`, `updated` and `author`, and a
+     body with `HANDOVER_SECTIONS`. It is not an `Entry` and has no ID.
+   - A conflicted entry file (git conflict markers) loads as a problem, not a crash.
+4. Build the commands (`cli.py`), then `check`, `brief`, `refs`. Test that
+   `init --write-agents` is idempotent and keeps the rest of AGENTS.md.
+   Author resolution: `--author`, then `MNEME_AUTHOR`, then config
+   `default_author`, then `unspecified`.
 5. Build `migrate` and test it against a **copy** of
    `../demiurge/.memory/log/entries.jsonl`:
    - counts and final states must match `load_entries()` in
