@@ -146,26 +146,23 @@ README.md  LICENSE  CHANGELOG.md
   v0.1 installs from git.
 - It's a separate repo in this folder, a sibling of `../demiurge`.
 - The storage model above (one file per entry, nothing generated).
-
-## Open decisions (recommendation first)
-
-1. **Minimum Python:** 3.11+, which brings `tomllib`. The machine has
-   **Python 3.10.11**, and 3.10 reached end of life in October 2026.
-   Recommendation: install 3.12 or 3.13 here and require 3.11+. The
-   alternative is supporting 3.10 with a JSON config, or a small TOML
-   parser of our own.
-2. **Frontmatter format:** a documented YAML subset (plain values and inline
-   lists, parser of about 60 lines) to stay MADR/log4brains-friendly, or TOML
-   frontmatter (`+++`), which `tomllib` reads for free.
-3. **Viewer in v0.1**, or ship the CLI first and port `serve` later.
-4. **License** (MIT?), and whether to create a GitHub repo now.
+- Settled with the user on 2026-11-02:
+  - **Python 3.11+**, using `tomllib` for `config.toml`. Python 3.12.10 and
+    3.11.14 (via uv) are installed on this machine; `python` on PATH is still 3.10.
+  - **Frontmatter is a documented YAML subset** between `---` lines: plain
+    scalars and inline `[a, b]` lists only, with our own small parser.
+  - **No viewer in v0.1.** Ship the CLI and `migrate` first, port `serve` in
+    v0.2, and keep `legacy/` until then.
+  - **MIT license, with a GitHub repo.** Running `gh` needs `gh auth login`
+    first, and we still have to confirm public or private before creating it.
+- Git on this machine has `core.autocrlf` on. The repo uses `.gitattributes`
+  to keep LF, and the parser must accept CRLF entry files.
 
 ## Next steps
 
-1. Settle the open decisions above with the user.
-2. `git init -b main`; first commit = these files + `legacy/` unchanged, so
-   the port has a clean baseline. Then scaffold `pyproject.toml`,
-   `src/mneme`, `tests`, CI.
+1. ~~Settle the open decisions~~ (done).
+2. ~~`git init -b main` and the baseline commit~~ (done, `c82f921`). Scaffold
+   `pyproject.toml`, `src/mneme`, `tests` and CI, then create the GitHub repo.
 3. Build `model.py`, `store.py` and `root.py` with tests first, including:
    - a two-branch scenario in a throwaway git repo: adding entries on both
      sides merges cleanly; editing the same status on both conflicts;
