@@ -59,7 +59,10 @@ DEFAULT_STATUS = {
     "note": "active",
 }
 
-INACTIVE_STATUSES = frozenset({"rejected", "deprecated", "superseded", "archived", "dropped"})
+# Hidden from `brief` and `recall` unless asked for: settled, replaced or abandoned.
+INACTIVE_STATUSES = frozenset(
+    {"rejected", "deprecated", "superseded", "archived", "dropped", "resolved", "done"}
+)
 
 # Body sections per type, in the order they are written. A note has a free body.
 SECTIONS = {
@@ -338,6 +341,9 @@ class Entry:
 
     def filename(self) -> str:
         return f"{self.id}-{slugify(self.title)}.md"
+
+    def oneline(self) -> str:
+        return f"{self.id}  {self.title}  [{self.status}]"
 
     def sections(self) -> dict[str, str]:
         return parse_sections(self.body)[1]

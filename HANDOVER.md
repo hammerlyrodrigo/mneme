@@ -236,11 +236,35 @@ few weeks whether it's enough.
    - The handover file has frontmatter `branch`, `updated` and `author`, and a
      body with `HANDOVER_SECTIONS`. It is not an `Entry` and has no ID.
    - A conflicted entry file (git conflict markers) loads as a problem, not a crash.
-4. Build the commands (`cli.py`), then `check`, `brief`, `recall`, `changes`;
-   later `compact`. Test that
-   `init --write-agents` is idempotent and keeps the rest of AGENTS.md.
-   Author resolution: `--author`, then `MNEME_AUTHOR`, then config
-   `default_author`, then `unspecified`.
+4. ~~Core commands~~ (done; 122 tests pass on 3.11 and 3.12). `init`,
+   `new <type>`, `set`, `resolve`, `done`, `supersede`, `handover`, `brief`,
+   `recall`, `list`, `show`, `changes`, `check`. Modules: `cli.py`,
+   `brief.py`, `recall.py` (instead of `search.py`), `changes.py`,
+   `check.py`, `init.py`, plus `templates/` (`instructions.md` is shared by the
+   AGENTS.md block and the Claude skill). Choices made while building:
+   - `new` uses one command, `new <type>`, not verb shortcuts (user agreed).
+     Question, reminder and concept take their title from `--text`,
+     `--action` and `--term`, with an optional `--title`.
+   - Flags take precedence over `--stdin` JSON. JSON keys are checked against
+     that type's fields, and nothing is written if any check fails.
+   - `supersedes` is allowed for decision, learning, concept and note, and only
+     within the same type. An unknown ID is an error everywhere (legacy problem 3).
+   - Inactive means rejected, deprecated, superseded, archived, dropped,
+     resolved or done. `brief` and `recall` hide these unless `--all` is passed.
+   - `spec_dirs` defaults to `["specs"]` (Spec Kit's layout).
+   - `check` accepts a link anchor that names a heading (GitHub slug) or
+     appears as a term in the file, so Spec Kit's `#fr-002` passes.
+   - Timestamps have one-second resolution, so entries created in the same
+     second have no defined order.
+   - `init --write-agents` keeps the text around the block and the file's
+     line endings, and refuses a file with only one marker.
+     `init --claude` won't overwrite an edited skill without `--force`.
+4b. **Dogfood:** run `mneme init --write-agents --claude` in this repo, then
+   turn this file into entries plus a short `.memory/handover/main.md`. The
+   design sections become decisions, and the open product question becomes
+   a question. Point AGENTS.md at `mneme brief`. Ask the user before
+   deleting HANDOVER.md.
+4c. Build `compact`, then `dream` (prompt only).
 5. Build `migrate` and test it against a **copy** of
    `../demiurge/.memory/log/entries.jsonl`:
    - counts and final states must match `load_entries()` in

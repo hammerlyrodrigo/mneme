@@ -19,8 +19,11 @@ class ConfigError(Exception):
     pass
 
 
-def git(args: list[str], cwd: Path) -> str | None:
-    """Run git and return stripped stdout, or None if git is missing or fails."""
+def git(args: list[str], cwd: Path, strip: bool = True) -> str | None:
+    """Run git and return its stdout, or None if git is missing or fails.
+
+    Pass strip=False for output whose leading spaces matter (`status --porcelain`).
+    """
     try:
         result = subprocess.run(
             ["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=False
@@ -29,7 +32,7 @@ def git(args: list[str], cwd: Path) -> str | None:
         return None
     if result.returncode != 0:
         return None
-    return result.stdout.strip()
+    return result.stdout.strip() if strip else result.stdout
 
 
 def find_root(start: Path | None = None) -> Path:
@@ -52,7 +55,7 @@ def current_branch(root: Path) -> str | None:
 @dataclass
 class Config:
     main_branch: str = ""
-    spec_dirs: list[str] = field(default_factory=list)
+    spec_dirs: list[str] = field(default_factory=lambda: ["specs"])
     default_author: str = ""
 
 

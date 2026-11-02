@@ -1,7 +1,34 @@
+import io
+import json
+
 import pytest
 
+from conftest import run_git
 from mneme import __version__
 from mneme.cli import main
+from mneme.init import BLOCK_END, BLOCK_START, GITATTRIBUTES_LINE
+from mneme.store import Store
+
+
+@pytest.fixture
+def mem(repo, monkeypatch):
+    """A repo with `mneme init` done, as the working directory."""
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("MNEME_AUTHOR", raising=False)
+    assert main(["init"]) == 0
+    return repo
+
+
+def run(capsys, *argv, stdin=None, monkeypatch=None):
+    if stdin is not None:
+        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(stdin.encode("utf-8"))))
+    code = main(list(argv))
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def created_id(output: str) -> str:
+    return output.split()[1]
 
 
 def test_version(capsys):
@@ -14,3 +41,432 @@ def test_version(capsys):
 def test_no_command_prints_help(capsys):
     assert main([]) == 0
     assert "usage: mneme" in capsys.readouterr().out
+
+
+def test_commands_need_init(repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    code, _, err = run(capsys, "brief")
+    assert code == 1
+    assert "mneme init" in err
+
+
+# --- new --------------------------------------------------------------------
+
+
+def test_new_decision_writes_sections(mem, capsys):
+    code, out, _ = run(capsys, "new", "decision", "--title", "Use files",
+                       "--context", "JSONL conflicted", "--decision", "One file each",
+                       "--tags", "storage,git", "--links", "src/store.py", "--author", "ana")
+    assert code == 0
+    entry = Store(mem).find(created_id(out))
+    assert (entry.status, entry.author, entry.branch) == ("accepted", "ana", "main")
+    assert entry.tags == ["storage", "git"]
+    assert entry.links == ["src/store.py"]
+    assert entry.section("Context") == "JSONL conflicted"
+    assert entry.section("Decision") == "One file each"
+    assert "Consequences" not in entry.sections()
+
+
+@pytest.mark.parametrize(
+    "argv, title, section, text",
+    [
+        (["question", "--text", "Which IdP?"], "Which IdP?", "Question", None),
+        (["question", "--text", "Which IdP?\nAuth0 or Keycloak.", "--title", "IdP"],
+         "IdP", "Question", "Which IdP?\nAuth0 or Keycloak."),
+        (["reminder", "--action", "Bump deps", "--trigger", "after v1"], "Bump deps", "Trigger", "after v1"),
+        (["concept", "--term", "Entry", "--definition", "One file"], "Entry", "Definition", "One file"),
+        (["learning", "--title", "Mocks", "--takeaway", "Use real git"], "Mocks", "Takeaway", "Use real git"),
+    ],
+)
+def test_new_each_type(mem, capsys, argv, title, section, text):
+    code, out, _ = run(capsys, "new", *argv)
+    assert code == 0
+    entry = Store(mem).find(created_id(out))
+    assert entry.title == title
+    assert entry.section(section) == (text or "")
+
+
+def test_new_note_has_free_body(mem, capsys):
+    _, out, _ = run(capsys, "new", "note", "--title", "Misc", "--body", "Just text.")
+    entry = Store(mem).find(created_id(out))
+    assert entry.body == "Just text.\n"
+
+
+def test_new_requires_title_field(mem, capsys):
+    code, _, err = run(capsys, "new", "reminder", "--trigger", "later")
+    assert code == 1
+    assert "--action is required" in err
+    assert Store(mem).entry_files() == []
+
+
+def test_author_from_env_then_config(mem, capsys, monkeypatch):
+    (mem / ".memory" / "config.toml").write_text('default_author = "cfg"\n', encoding="utf-8")
+    _, out, _ = run(capsys, "new", "note", "--title", "a")
+    assert Store(mem).find(created_id(out)).author == "cfg"
+    monkeypatch.setenv("MNEME_AUTHOR", "env")
+    _, out, _ = run(capsys, "new", "note", "--title", "b")
+    assert Store(mem).find(created_id(out)).author == "env"
+
+
+def test_new_stdin(mem, capsys, monkeypatch):
+    payload = {"title": "Mocking git", "tried": "Mocks", "takeaway": "Real repos",
+               "tags": ["testing"], "links": "tests/"}
+    code, out, _ = run(capsys, "new", "learning", "--stdin", stdin=json.dumps(payload),
+                       monkeypatch=monkeypatch)
+    assert code == 0
+    entry = Store(mem).find(created_id(out))
+    assert (entry.tags, entry.links) == (["testing"], ["tests/"])
+    assert entry.section("Takeaway") == "Real repos"
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    [
+        ("not json", "invalid JSON"),
+        ("[1]", "JSON object"),
+        ('{"title": "x", "colour": "red"}', "unknown field"),
+        ('{"title": 3}', "must be a string"),
+        ('{"title": "x", "tags": [1]}', "list of strings"),
+        ('{"title": "x", "status": "bogus"}', "bad status"),
+        ('{"title": "two\\nlines"}', "one line"),
+    ],
+)
+def test_new_stdin_is_validated_before_writing(mem, capsys, monkeypatch, payload, message):
+    code, _, err = run(capsys, "new", "decision", "--stdin", stdin=payload, monkeypatch=monkeypatch)
+    assert code == 1
+    assert message in err
+    assert Store(mem).entry_files() == []
+
+
+def test_new_supersedes(mem, capsys):
+    _, out, _ = run(capsys, "new", "decision", "--title", "Old")
+    old = created_id(out)
+    code, out, _ = run(capsys, "new", "decision", "--title", "New", "--supersedes", old[:5])
+    assert code == 0
+    store = Store(mem)
+    assert store.find(old).status == "superseded"
+    assert store.find(created_id(out)).supersedes == [old]
+
+
+def test_new_supersedes_unknown_or_other_type_refused(mem, capsys):
+    _, out, _ = run(capsys, "new", "note", "--title", "A note")
+    note = created_id(out)
+    assert run(capsys, "new", "decision", "--title", "x", "--supersedes", "D-000000")[0] == 1
+    code, _, err = run(capsys, "new", "decision", "--title", "x", "--supersedes", note)
+    assert code == 1 and "can only supersede a decision" in err
+    assert len(Store(mem).entry_files()) == 1
+
+
+# --- lifecycle --------------------------------------------------------------
+
+
+def test_resolve_question(mem, capsys):
+    _, out, _ = run(capsys, "new", "question", "--text", "Which IdP?")
+    q = created_id(out)
+    _, out, _ = run(capsys, "new", "decision", "--title", "Use Keycloak")
+    d = created_id(out)
+    code, out, _ = run(capsys, "resolve", q, "--answer", "Keycloak.", "--decision", d)
+    assert code == 0
+    entry = Store(mem).find(q)
+    assert (entry.status, entry.resolved_by, entry.section("Answer")) == ("resolved", d, "Keycloak.")
+
+
+def test_resolve_unknown_id_fails(mem, capsys):
+    code, _, err = run(capsys, "resolve", "Q0099", "--answer", "x")
+    assert code == 1
+    assert "no entry" in err
+
+
+def test_resolve_only_questions(mem, capsys):
+    _, out, _ = run(capsys, "new", "note", "--title", "n")
+    assert run(capsys, "resolve", created_id(out), "--answer", "x")[0] == 1
+
+
+def test_done_and_set(mem, capsys):
+    _, out, _ = run(capsys, "new", "reminder", "--action", "Bump deps")
+    r = created_id(out)
+    assert run(capsys, "done", r, "--note", "Bumped")[0] == 0
+    assert Store(mem).find(r).section("Note") == "Bumped"
+    assert run(capsys, "set", r, "--status", "pending")[0] == 0
+    code, _, err = run(capsys, "set", r, "--status", "accepted")
+    assert code == 1 and "pending, done, dropped" in err
+
+
+def test_supersede_command_and_show(mem, capsys):
+    _, out, _ = run(capsys, "new", "concept", "--term", "Entry", "--definition", "v1")
+    old = created_id(out)
+    _, out, _ = run(capsys, "new", "concept", "--term", "Entry", "--definition", "v2")
+    new = created_id(out)
+    assert run(capsys, "supersede", old, "--by", new)[0] == 0
+    code, out, _ = run(capsys, "show", old)
+    assert code == 0
+    assert f"# superseded by {new}" in out
+    assert "status: superseded" in out
+
+
+# --- handover and brief -----------------------------------------------------
+
+
+def test_handover_on_slash_branch(mem, capsys):
+    run_git(mem, "checkout", "-q", "-b", "feature/auth")
+    code, out, _ = run(capsys, "handover", "--summary", "Half done", "--next", "Logout")
+    assert code == 0
+    assert ".memory/handover/feature--auth.md" in out
+    handover = Store(mem).load_handover("feature/auth")
+    assert "## Next\n\nLogout" in handover.body
+    assert "Blockers" not in handover.body
+
+
+def test_brief_is_bounded(mem, capsys):
+    for i in range(30):
+        run(capsys, "new", "question", "--text", f"Question {i}?")
+        run(capsys, "new", "decision", "--title", f"Decision {i}")
+    run(capsys, "handover", "--summary", "Line\n" * 100)
+    code, out, _ = run(capsys, "brief")
+    assert code == 0
+    assert len(out.splitlines()) <= 50
+    assert "Open questions (30):" in out
+    assert "(+25 more: mneme list question)" in out
+    assert "Recent decisions (3 of 30):" in out
+    assert "Decision 29" in out and "Decision 0 " not in out
+    assert "more lines in .memory/handover/main.md" in out
+
+
+def test_brief_hides_settled_and_shows_branch_and_markers(mem, capsys):
+    _, out, _ = run(capsys, "new", "question", "--text", "Settled?")
+    run(capsys, "resolve", created_id(out), "--answer", "yes")
+    run(capsys, "handover", "--summary", "Main is fine")
+    (mem / "specs").mkdir()
+    (mem / "specs" / "spec.md").write_text("- FR-1 [NEEDS CLARIFICATION: which IdP?]\n", encoding="utf-8")
+    run_git(mem, "add", "-A")
+    run_git(mem, "commit", "-q", "-m", "memory")
+    run_git(mem, "checkout", "-q", "-b", "feature/x")
+    run(capsys, "new", "learning", "--title", "Found out")
+    _, out, _ = run(capsys, "brief")
+    assert "Settled?" not in out
+    assert "Handover for feature/x: none yet" in out
+    assert "Main (main) handover: Main is fine" in out
+    assert "This branch so far: 1 learning" in out
+    assert "specs/spec.md:1 [NEEDS CLARIFICATION: which IdP?]" in out
+
+
+def test_brief_reports_problems(mem, capsys):
+    bad = mem / ".memory" / "decisions" / "D-ffffff-bad.md"
+    bad.parent.mkdir()
+    bad.write_text("garbage", encoding="utf-8")
+    _, out, _ = run(capsys, "brief")
+    assert "! 1 problem in .memory/: run `mneme check`" in out
+
+
+# --- recall, list -----------------------------------------------------------
+
+
+def test_recall_ranks_and_filters(mem, capsys):
+    run(capsys, "new", "decision", "--title", "Session tokens", "--context", "about auth")
+    run(capsys, "new", "decision", "--title", "Authentication via OIDC")
+    run(capsys, "new", "note", "--title", "Unrelated")
+    _, out, _ = run(capsys, "new", "question", "--text", "Auth for admins?")
+    run(capsys, "resolve", created_id(out), "--answer", "same")
+    _, out, _ = run(capsys, "recall", "auth")
+    lines = out.splitlines()
+    assert "Authentication via OIDC" in lines[0]
+    assert "Session tokens" in lines[1]
+    assert len(lines) == 2
+    _, out, _ = run(capsys, "recall", "auth", "--all")
+    assert "Auth for admins?" in out
+    _, out, _ = run(capsys, "recall", "auth", "--type", "question")
+    assert "Nothing found" in out
+
+
+def test_recall_by_path(mem, capsys, monkeypatch):
+    run(capsys, "new", "decision", "--title", "Dir level", "--links", "src/auth/")
+    run(capsys, "new", "decision", "--title", "File level", "--links", "src/auth/session.py#L10")
+    run(capsys, "new", "decision", "--title", "Elsewhere", "--links", "src/db.py,https://x.org/a")
+    _, out, _ = run(capsys, "recall", "--path", "src/auth/session.py")
+    assert "Dir level" in out and "File level" in out and "Elsewhere" not in out
+    _, out, _ = run(capsys, "recall", "--path", "src/auth")
+    assert "File level" in out
+    (mem / "src" / "auth").mkdir(parents=True)
+    monkeypatch.chdir(mem / "src" / "auth")
+    _, out, _ = run(capsys, "recall", "--path", "session.py", "file")
+    assert len(out.splitlines()) == 1 and "File level" in out
+
+
+def test_recall_needs_input(mem, capsys):
+    assert run(capsys, "recall")[0] == 1
+
+
+def test_recall_limit(mem, capsys):
+    for i in range(5):
+        run(capsys, "new", "note", "--title", f"cache note {i}")
+    _, out, _ = run(capsys, "recall", "cache", "--limit", "2")
+    assert len(out.splitlines()) == 3
+    assert "(+3 more" in out
+
+
+def test_list(mem, capsys):
+    run(capsys, "new", "reminder", "--action", "first")
+    _, out, _ = run(capsys, "new", "reminder", "--action", "second")
+    run(capsys, "done", created_id(out))
+    _, out, _ = run(capsys, "list", "reminder")
+    assert "first" in out and "second" not in out
+    _, out, _ = run(capsys, "list", "reminder", "--status", "done")
+    assert "second" in out and "first" not in out
+    _, out, _ = run(capsys, "list", "reminder", "--all")
+    assert "second" in out and "first" in out
+
+
+# --- changes ----------------------------------------------------------------
+
+
+def test_changes(mem, capsys):
+    _, out, _ = run(capsys, "new", "question", "--text", "Base question?")
+    base_q = created_id(out)
+    run_git(mem, "add", "-A")
+    run_git(mem, "commit", "-q", "-m", "base")
+    code, _, err = run(capsys, "changes")
+    assert code == 1 and "--base" in err
+
+    run_git(mem, "checkout", "-q", "-b", "feature/x")
+    run(capsys, "new", "decision", "--title", "Committed decision")
+    run_git(mem, "add", "-A")
+    run_git(mem, "commit", "-q", "-m", "x")
+    run(capsys, "new", "learning", "--title", "Uncommitted learning")
+    run(capsys, "new", "question", "--text", "Still open?")
+    run(capsys, "resolve", base_q, "--answer", "Yes")
+
+    code, out, _ = run(capsys, "changes")
+    assert code == 0
+    assert "added    decision  " in out and "Committed decision" in out
+    assert "Uncommitted learning" in out
+    assert "changed  question" in out and "Base question?" in out
+
+    _, out, _ = run(capsys, "changes", "--markdown")
+    assert out.startswith("### Project memory")
+    assert "**Decisions**\n- `D-" in out
+    assert "**Still open**" in out and "Still open?" in out
+    assert "**Questions settled**" in out and "Base question? (resolved)" in out
+
+
+def test_changes_unknown_base(mem, capsys):
+    run_git(mem, "checkout", "-q", "-b", "feature/x")
+    code, _, err = run(capsys, "changes", "--base", "nope")
+    assert code == 1 and "not found" in err
+
+
+# --- check ------------------------------------------------------------------
+
+
+def test_check_clean(mem, capsys):
+    run(capsys, "new", "decision", "--title", "x")
+    code, out, _ = run(capsys, "check")
+    assert code == 0 and "OK: 1 entries" in out
+
+
+def test_check_reports_problems(mem, capsys):
+    (mem / "specs").mkdir()
+    (mem / "specs" / "spec.md").write_text("# Spec\n\n## Login flow\n\n- **FR-002**: x\n", encoding="utf-8")
+    run(capsys, "new", "decision", "--title", "Good links",
+        "--links", "specs/spec.md#login-flow,specs/spec.md#fr-002,https://example.com/#x,specs/")
+    run(capsys, "new", "decision", "--title", "Bad links",
+        "--links", "specs/missing.md,specs/spec.md#nope")
+    store = Store(mem)
+    entries = store.load().entries
+    bad = next(e for e in entries if e.title == "Bad links")
+    bad.supersedes = ["D-000000"]
+    store.save(bad)
+    (mem / ".memory" / "decisions" / "D-ffffff-broken.md").write_text("garbage", encoding="utf-8")
+    copy = mem / ".memory" / "decisions" / "renamed.md"
+    copy.write_text(bad.path.read_text(encoding="utf-8"), encoding="utf-8")
+    (mem / ".memory" / "handover").mkdir()
+    (mem / ".memory" / "handover" / "feature--old.md").write_text(
+        "---\nbranch: feature/old\nupdated: 2026-11-02T10:00:00Z\n---\n", encoding="utf-8")
+
+    code, out, _ = run(capsys, "check")
+    assert code == 1
+    assert "link target not found: specs/missing.md" in out
+    assert "anchor not found: specs/spec.md#nope" in out
+    assert "Good links" not in out and "login-flow" not in out and "fr-002" not in out
+    assert "supersedes unknown entry D-000000" in out
+    assert "D-ffffff-broken.md: missing frontmatter" in out
+    assert f"duplicate id {bad.id}" in out
+    assert "renamed.md: filename does not start with id" in out
+    assert "feature--old.md: handover from a merged branch" in out
+
+
+def test_check_ignores_other_handovers_off_main(mem, capsys):
+    run_git(mem, "checkout", "-q", "-b", "feature/x")
+    run(capsys, "handover", "--summary", "x", "--branch", "feature/y")
+    assert run(capsys, "check")[0] == 0
+
+
+# --- init -------------------------------------------------------------------
+
+
+def test_init_creates_config_once(mem, capsys):
+    config = mem / ".memory" / "config.toml"
+    assert config.is_file()
+    config.write_text('main_branch = "trunk"\n', encoding="utf-8")
+    _, out, _ = run(capsys, "init")
+    assert "already set up" in out
+    assert config.read_text(encoding="utf-8") == 'main_branch = "trunk"\n'
+
+
+def test_init_outside_git(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == 0
+    assert (tmp_path / ".memory" / "config.toml").is_file()
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_write_agents_keeps_surrounding_text_and_is_idempotent(mem, capsys, newline):
+    agents = mem / "AGENTS.md"
+    before, after = f"# Project{newline}{newline}Intro.{newline}", f"{newline}## Later{newline}Kept.{newline}"
+    agents.write_bytes(before.encode())
+    assert run(capsys, "init", "--write-agents")[0] == 0
+    text = agents.read_bytes().decode()
+    assert text.startswith(before)
+    assert text.count(BLOCK_START) == 1
+    # Text added after the block survives a refresh.
+    agents.write_bytes((text + after).encode())
+    once = agents.read_bytes()
+    _, out, _ = run(capsys, "init", "--write-agents")
+    assert "already up to date" in out
+    assert agents.read_bytes() == once
+    assert once.decode().endswith(after)
+    if newline == "\r\n":
+        assert b"\n" not in once.replace(b"\r\n", b"")
+
+    # An outdated block is replaced in place.
+    stale = once.decode()
+    start, end = stale.index(BLOCK_START), stale.index(BLOCK_END) + len(BLOCK_END)
+    agents.write_bytes((stale[:start] + f"{BLOCK_START}{newline}old{newline}{BLOCK_END}" + stale[end:]).encode())
+    _, out, _ = run(capsys, "init", "--write-agents")
+    assert "updated AGENTS.md" in out
+    assert agents.read_bytes() == once
+
+
+def test_write_agents_refuses_half_block(mem, capsys):
+    (mem / "AGENTS.md").write_text(f"x\n{BLOCK_START}\nno end\n", encoding="utf-8")
+    code, _, err = run(capsys, "init", "--write-agents")
+    assert code == 1 and "fix it by hand" in err
+
+
+def test_claude_skill_not_overwritten_without_force(mem, capsys):
+    run(capsys, "init", "--claude")
+    skill = mem / ".claude" / "skills" / "mneme" / "SKILL.md"
+    assert skill.read_text(encoding="utf-8").startswith("---\nname: mneme\n")
+    skill.write_text("mine", encoding="utf-8")
+    _, out, _ = run(capsys, "init", "--claude")
+    assert "kept existing" in out and skill.read_text(encoding="utf-8") == "mine"
+    run(capsys, "init", "--claude", "--force")
+    assert skill.read_text(encoding="utf-8") != "mine"
+
+
+def test_hide_in_diffs_is_idempotent(mem, capsys):
+    attrs = mem / ".gitattributes"
+    attrs.write_text("* text=auto", encoding="utf-8")
+    run(capsys, "init", "--hide-in-diffs")
+    run(capsys, "init", "--hide-in-diffs")
+    assert attrs.read_text(encoding="utf-8") == f"* text=auto\n{GITATTRIBUTES_LINE}\n"
