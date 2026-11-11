@@ -25,3 +25,5 @@
 - `archive` moves inactive entries, unchanged, to `.memory/archive/<type>s/`
   (`--inactive` for all of them, `--restore` to move back). `show` and `--all`
   still find them; `changes` reports moves as archived or restored.
+- `dream` prints a consolidation prompt for an agent: the real commands and
+  the active entries, likely overlaps grouped first. It changes nothing.

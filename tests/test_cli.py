@@ -355,6 +355,22 @@ def test_changes_reports_archive_moves(mem, capsys):
     assert out.startswith("archived reminder")
 
 
+def test_dream_prints_real_commands_and_changes_nothing(mem, capsys):
+    run(capsys, "new", "decision", "--title", "Use files", "--tags", "storage", "--links", "src/a.py")
+    run(capsys, "new", "learning", "--title", "Mocks hid conflicts", "--tags", "testing")
+    before = sorted(p.read_bytes() for p in Store(mem).entry_files())
+    code, out, _ = run(capsys, "dream")
+    assert code == 0
+    assert "mneme new decision --title ... --context ... --decision ... --consequences ..." in out
+    assert "mneme new concept --term ... --definition ... --notes ..." in out
+    assert "Use files" in out and "Mocks hid conflicts" in out
+    _, out, _ = run(capsys, "dream", "--tag", "storage")
+    assert "Use files" in out and "Mocks hid conflicts" not in out
+    _, out, _ = run(capsys, "dream", "--path", "src/a.py")
+    assert "Use files" in out and "Mocks hid conflicts" not in out
+    assert sorted(p.read_bytes() for p in Store(mem).entry_files()) == before
+
+
 # --- handover and brief -----------------------------------------------------
 
 

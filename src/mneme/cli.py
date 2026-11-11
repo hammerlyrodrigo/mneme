@@ -26,7 +26,8 @@ from mneme.model import (
     now_utc,
     render_sections,
 )
-from mneme.recall import recall
+from mneme.dream import DREAM_TYPES, build_dream
+from mneme.recall import links_path, recall
 from mneme.root import (
     ConfigError,
     RootNotFound,
@@ -495,6 +496,34 @@ def cmd_show(ctx: Context, args) -> int:
     return 0
 
 
+def usage_lines() -> list[str]:
+    """The commands `dream` may tell an agent to run, with their real flags."""
+    lines = []
+    for entry_type in DREAM_TYPES:
+        flags = " ".join(f"--{name} ..." for name, _, _ in FIELDS[entry_type])
+        lines.append(f"mneme new {entry_type} {flags} --summary ... --keywords A,B "
+                     f"--tags A,B --links PATH,PATH --supersedes ID,ID")
+    lines += [
+        "mneme set <id> [--status STATUS] [--summary ...] [--keywords A,B]",
+        "mneme supersede <old-id> --by <new-id>",
+        "mneme archive <id> [<id>...]",
+        "mneme show <id> [<id>...]",
+    ]
+    return lines
+
+
+def cmd_dream(ctx: Context, args) -> int:
+    entries = ctx.store.load().entries
+    if args.tag:
+        tag = args.tag.lower()
+        entries = [e for e in entries if tag in {t.lower() for t in [*e.tags, *e.keywords]}]
+    if args.path is not None:
+        path = ctx.repo_path(args.path)
+        entries = [e for e in entries if links_path(e, path)]
+    sys.stdout.write(build_dream(entries, usage_lines(), args.limit))
+    return 0
+
+
 def cmd_changes(ctx: Context, args) -> int:
     base = args.base or ctx.main
     if not args.base and ctx.branch == base:
@@ -615,6 +644,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("show", cmd_show, "print entries: title, status, links and body")
     p.add_argument("ids", nargs="+", metavar="id", help="ids or unique id prefixes")
     p.add_argument("--raw", action="store_true", help="print the whole file, with all frontmatter")
+
+    p = command("dream", cmd_dream,
+                "print a prompt asking an agent to consolidate memory; changes nothing itself")
+    p.add_argument("--tag", help="only entries with this tag or keyword")
+    p.add_argument("--path", help="only entries linked to this file or directory")
+    p.add_argument("--limit", type=int, default=80, help="newest entries to include (0: all)")
 
     p = command("changes", cmd_changes, "entries added or changed on this branch")
     p.add_argument("--base", help="branch to compare against (default: the main branch)")
