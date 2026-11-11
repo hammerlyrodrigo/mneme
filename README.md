@@ -29,6 +29,7 @@ echo '{"title": "...", "tried": "..."}' | mneme new learning --stdin
 mneme resolve Q-3c8d21 --answer "Keycloak" --decision D-91b0e4
 mneme done R-44b2c0
 mneme supersede D-7f3a2c --by D-91b0e4
+mneme archive --inactive             # move settled entries to .memory/archive/
 mneme handover --summary "..." --done "..." --next "..."
 
 mneme brief                        # session start: small and bounded

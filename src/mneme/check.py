@@ -79,6 +79,12 @@ def check(store: Store, branch: str | None, main: str) -> tuple[list[Problem], i
                 problems.append(Problem(entry.path, f"{entry.id}: supersedes unknown entry {ref}"))
         if entry.resolved_by and entry.resolved_by not in ids:
             problems.append(Problem(entry.path, f"{entry.id}: resolved_by unknown entry {entry.resolved_by}"))
+        if store.is_archived(entry):
+            # Archived entries are history; the code they linked to may be long gone.
+            if entry.active:
+                problems.append(Problem(entry.path, f"{entry.id} is {entry.status} but archived; "
+                                                    f"run `mneme archive --restore {entry.id}`"))
+            continue
         problems += [Problem(entry.path, m) for m in check_links(entry, store.root)]
 
     for path in store.handover_files():

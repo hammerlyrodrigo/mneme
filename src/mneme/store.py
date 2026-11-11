@@ -19,6 +19,7 @@ from mneme.model import (
 from mneme.root import MEMORY_DIRNAME
 
 HANDOVER_DIRNAME = "handover"
+ARCHIVE_DIRNAME = "archive"
 
 
 class NotFound(LookupError):
@@ -74,13 +75,22 @@ class Store:
     def type_dir(self, entry_type: str) -> Path:
         return self.memory_dir / f"{entry_type}s"
 
+    def archive_dir(self, entry_type: str) -> Path:
+        return self.memory_dir / ARCHIVE_DIRNAME / f"{entry_type}s"
+
+    def entry_dirs(self) -> list[Path]:
+        """Every folder entries live in: one per type, and its archive."""
+        return [d for t in TYPES for d in (self.type_dir(t), self.archive_dir(t))]
+
     def entry_files(self) -> list[Path]:
         files: list[Path] = []
-        for entry_type in TYPES:
-            directory = self.type_dir(entry_type)
+        for directory in self.entry_dirs():
             if directory.is_dir():
                 files += sorted(p for p in directory.glob("*.md") if not p.name.startswith("."))
         return files
+
+    def is_archived(self, entry: Entry) -> bool:
+        return entry.path is not None and entry.path.parent == self.archive_dir(entry.type)
 
     def load(self) -> Loaded:
         """Read every entry. Unreadable or invalid files become problems, not errors."""
@@ -92,7 +102,7 @@ class Store:
                 loaded.problems.append(Problem(path, str(exc)))
                 continue
             expected_dir = self.type_dir(entry.type)
-            if path.parent != expected_dir:
+            if path.parent not in (expected_dir, self.archive_dir(entry.type)):
                 loaded.problems.append(
                     Problem(path, f"type {entry.type!r} belongs in {expected_dir.name}/")
                 )
@@ -160,6 +170,19 @@ class Store:
             raise ValueError(f"{entry.id} was not loaded from disk; use create()")
         entry.validate()
         atomic_write(entry.path, entry.to_text())
+
+    def move(self, entry: Entry, archived: bool) -> Path:
+        """Move an entry's file into or out of the archive, unchanged; git sees a rename."""
+        if entry.path is None:
+            raise ValueError(f"{entry.id} was not loaded from disk")
+        directory = self.archive_dir(entry.type) if archived else self.type_dir(entry.type)
+        target = directory / entry.path.name
+        if target.exists():
+            raise FileExistsError(f"{target} already exists")
+        directory.mkdir(parents=True, exist_ok=True)
+        os.replace(entry.path, target)
+        entry.path = target
+        return target
 
     # --- handovers ----------------------------------------------------------
 

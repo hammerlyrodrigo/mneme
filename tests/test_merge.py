@@ -77,6 +77,54 @@ def test_identical_edits_on_two_branches_merge_cleanly(repo):
     assert store.find(reminder.id).status == "done"
 
 
+def test_archiving_on_main_merges_with_an_edit_on_a_branch(repo):
+    store = Store(repo)
+    question = store.create(make(entry_type="question", title="Which database?"))
+    commit_all(repo, "base")
+
+    run_git(repo, "checkout", "-q", "-b", "feature/a")
+    entry = store.find(question.id)
+    entry.set_section("Answer", "SQLite.")
+    entry.status = "resolved"
+    store.save(entry)
+    commit_all(repo, "resolve on a")
+
+    run_git(repo, "checkout", "-q", "main")
+    entry = store.find(question.id)
+    entry.status = "dropped"
+    store.save(entry)
+    commit_all(repo, "drop on main")
+    store.move(store.find(question.id), archived=True)
+    commit_all(repo, "archive on main")
+
+    # The status edits still disagree, but in the archived file, not in a second copy.
+    result = run_git(repo, "merge", "--no-edit", "feature/a", check=False)
+    assert f"Merge conflict in .memory/archive/questions/{question.path.name}" in result.stdout
+    assert not list((repo / ".memory" / "questions").glob("*.md"))
+
+
+def test_archiving_and_an_unrelated_edit_merge_cleanly(repo):
+    store = Store(repo)
+    question = store.create(make(entry_type="question", title="Which database?", status="dropped"))
+    commit_all(repo, "base")
+
+    run_git(repo, "checkout", "-q", "-b", "feature/a")
+    entry = store.find(question.id)
+    entry.set_section("Answer", "Not needed after all.")
+    store.save(entry)
+    commit_all(repo, "answer on a")
+
+    run_git(repo, "checkout", "-q", "main")
+    store.move(store.find(question.id), archived=True)
+    commit_all(repo, "archive on main")
+
+    result = run_git(repo, "merge", "--no-edit", "feature/a", check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    merged = store.find(question.id)
+    assert store.is_archived(merged)
+    assert merged.section("Answer") == "Not needed after all."
+
+
 def test_status_change_and_new_entry_merge_cleanly(repo):
     store = Store(repo)
     reminder = store.create(make(entry_type="reminder", title="Bump deps after v1"))

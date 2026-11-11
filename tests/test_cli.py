@@ -287,6 +287,74 @@ def test_set_summary_and_keywords(mem, capsys):
     assert run(capsys, "set", d)[0] == 1
 
 
+# --- archive ----------------------------------------------------------------
+
+
+def test_archive_moves_inactive_entries_and_keeps_them_findable(mem, capsys):
+    _, out, _ = run(capsys, "new", "decision", "--title", "Old cache plan")
+    old = created_id(out)
+    _, out, _ = run(capsys, "new", "decision", "--title", "New cache plan", "--supersedes", old)
+    new = created_id(out)
+    _, out, _ = run(capsys, "new", "reminder", "--action", "Done thing")
+    run(capsys, "done", created_id(out))
+
+    code, _, err = run(capsys, "archive", new)
+    assert code == 1 and "only settled or replaced" in err
+    code, out, _ = run(capsys, "archive", "--inactive")
+    assert code == 0 and out.count("Archived") == 2
+    archived = mem / ".memory" / "archive" / "decisions"
+    assert [p.name.split("-old")[0] for p in archived.iterdir()] == [old]
+    assert run(capsys, "archive", "--inactive")[1] == "Nothing to archive.\n"
+
+    _, out, _ = run(capsys, "recall", "cache")
+    assert new in out and old not in out
+    _, out, _ = run(capsys, "recall", "cache", "--all")
+    assert old in out
+    assert run(capsys, "show", old)[0] == 0
+    assert run(capsys, "check")[0] == 0
+
+    code, out, _ = run(capsys, "archive", "--restore", old)
+    assert code == 0 and (mem / ".memory" / "decisions").joinpath(Store(mem).find(old).path.name).exists()
+
+
+def test_archived_entry_made_active_is_flagged(mem, capsys):
+    _, out, _ = run(capsys, "new", "question", "--text", "Dropped?")
+    q = created_id(out)
+    run(capsys, "set", q, "--status", "dropped")
+    run(capsys, "archive", q)
+    _, _, err = run(capsys, "set", q, "--status", "open")
+    assert "archive --restore" in err
+    code, out, _ = run(capsys, "check")
+    assert code == 1 and "is open but archived" in out
+
+
+def test_archive_link_rot_is_not_a_problem(mem, capsys):
+    _, out, _ = run(capsys, "new", "note", "--title", "Old", "--links", "src/gone.py")
+    n = created_id(out)
+    run(capsys, "set", n, "--status", "archived")
+    assert run(capsys, "check")[0] == 1
+    run(capsys, "archive", n)
+    assert run(capsys, "check")[0] == 0
+
+
+def test_changes_reports_archive_moves(mem, capsys):
+    _, out, _ = run(capsys, "new", "reminder", "--action", "Old chore")
+    r = created_id(out)
+    run(capsys, "done", r)
+    run_git(mem, "add", "-A")
+    run_git(mem, "commit", "-q", "-m", "base")
+    run_git(mem, "checkout", "-q", "-b", "feature/x")
+    run(capsys, "archive", r)
+    _, out, _ = run(capsys, "changes")
+    assert out.startswith("archived reminder") and "deleted" not in out
+    _, out, _ = run(capsys, "changes", "--markdown")
+    assert out == "### Project memory\n\nArchived 1 entry.\n"
+    run_git(mem, "add", "-A")
+    run_git(mem, "commit", "-q", "-m", "archive")
+    _, out, _ = run(capsys, "changes")
+    assert out.startswith("archived reminder")
+
+
 # --- handover and brief -----------------------------------------------------
 
 

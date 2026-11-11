@@ -322,6 +322,8 @@ def cmd_set(ctx: Context, args) -> int:
         changed.append("keywords")
     ctx.store.save(entry)
     out(f"{entry.id}: set {', '.join(changed)}")
+    if entry.active and ctx.store.is_archived(entry):
+        warn(f"{entry.id} is archived; run `mneme archive --restore {entry.id}` to bring it back")
     return 0
 
 
@@ -368,6 +370,34 @@ def cmd_supersede(ctx: Context, args) -> int:
     old.status = "superseded"
     store.save(old)
     out(f"{old.id} superseded by {new.id}")
+    return 0
+
+
+def cmd_archive(ctx: Context, args) -> int:
+    store = ctx.store
+    entries = store.load().entries
+    if args.inactive and (args.ids or args.restore):
+        raise UsageError("--inactive archives every inactive entry; don't combine it with ids or --restore")
+    if args.inactive:
+        chosen = [e for e in entries if not e.active and not store.is_archived(e)]
+    elif args.ids:
+        chosen = [store.find(ref, entries) for ref in args.ids]
+    else:
+        raise UsageError("archive needs ids or --inactive")
+    # Check every entry before moving any, so a bad id moves nothing.
+    for entry in chosen:
+        if args.restore and not store.is_archived(entry):
+            raise UsageError(f"{entry.id} is not archived")
+        if not args.restore:
+            if store.is_archived(entry):
+                raise UsageError(f"{entry.id} is already archived")
+            if entry.active:
+                raise UsageError(f"{entry.id} is {entry.status}; only settled or replaced entries are archived")
+    for entry in chosen:
+        path = store.move(entry, archived=not args.restore)
+        out(f"{'Restored' if args.restore else 'Archived'} {entry.id}  {ctx.rel(path)}")
+    if not chosen:
+        out("Nothing to archive.")
     return 0
 
 
@@ -551,6 +581,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("supersede", cmd_supersede, "mark an entry as replaced by a newer one")
     p.add_argument("old")
     p.add_argument("--by", required=True, metavar="ID")
+
+    p = command("archive", cmd_archive,
+                "move settled or replaced entries to .memory/archive/; show and --all still find them")
+    p.add_argument("ids", nargs="*", metavar="id")
+    p.add_argument("--inactive", action="store_true", help="archive every inactive entry")
+    p.add_argument("--restore", action="store_true", help="move archived entries back")
 
     p = command("handover", cmd_handover, "write this branch's handover (overwrites the last one)")
     p.add_argument("--summary", required=True)
