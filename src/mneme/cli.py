@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -27,6 +28,7 @@ from mneme.model import (
     render_sections,
 )
 from mneme.dream import DREAM_TYPES, build_dream
+from mneme.migrate import MigrateError, plan_migration
 from mneme.recall import links_path, recall
 from mneme.root import (
     ConfigError,
@@ -45,7 +47,7 @@ class UsageError(Exception):
 
 
 ERRORS = (UsageError, FormatError, ConfigError, RootNotFound, NotFound, Ambiguous,
-          FileExistsError, ChangesError, ValueError)
+          FileExistsError, ChangesError, MigrateError, ValueError)
 
 
 # --- per-type fields --------------------------------------------------------
@@ -402,6 +404,49 @@ def cmd_archive(ctx: Context, args) -> int:
     return 0
 
 
+def cmd_migrate(ctx: Context, args) -> int:
+    store = ctx.store
+    plan = plan_migration(Path(args.from_path))
+    for note in plan.notes:
+        out(f"note: {note}")
+    if plan.problems:
+        for problem in plan.problems:
+            out(f"problem: {problem}")
+        out(f"Nothing written: {len(plan.problems)} record(s) can't be migrated.")
+        return 1
+
+    known = {e.id for e in store.load().entries}
+    new = [e for e in plan.entries if e.id not in known]
+    if len(new) < len(plan.entries):
+        out(f"note: {len(plan.entries) - len(new)} entries already exist here and are skipped")
+    counts = Counter((e.type, e.status) for e in new)
+    verb = "Would migrate" if args.dry_run else "Migrated"
+    out(f"{verb} {len(new)} entries:")
+    for (entry_type, status), n in sorted(counts.items()):
+        out(f"  {n:>4} {entry_type} {status}")
+
+    handover_note = ""
+    if plan.handover:
+        plan.handover.branch = ctx.main
+        if store.load_handover(ctx.main):
+            handover_note = f"kept the existing {ctx.main} handover; the log's newest one was not imported"
+        else:
+            handover_note = f"newest handover becomes the {ctx.main} handover"
+        if plan.handovers_dropped:
+            handover_note += f" ({plan.handovers_dropped} older ones are left in the log's git history)"
+        out(f"note: {handover_note}")
+    if args.dry_run:
+        return 0
+
+    for entry in new:
+        store.create(entry, known)
+        known.add(entry.id)
+    if plan.handover and not store.load_handover(ctx.main):
+        store.write_handover(plan.handover)
+    out("Run `mneme check`, then commit .memory/ and remove the old log in the same commit.")
+    return 0
+
+
 def cmd_handover(ctx: Context, args) -> int:
     branch = args.branch or ctx.branch
     if not branch:
@@ -644,6 +689,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("show", cmd_show, "print entries: title, status, links and body")
     p.add_argument("ids", nargs="+", metavar="id", help="ids or unique id prefixes")
     p.add_argument("--raw", action="store_true", help="print the whole file, with all frontmatter")
+
+    p = command("migrate", cmd_migrate, "import a mneme v0 log (.memory/log/entries.jsonl)")
+    p.add_argument("--from", dest="from_path", required=True, metavar="ENTRIES_JSONL")
+    p.add_argument("--dry-run", action="store_true", help="report what would be written; write nothing")
 
     p = command("dream", cmd_dream,
                 "print a prompt asking an agent to consolidate memory; changes nothing itself")

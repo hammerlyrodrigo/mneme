@@ -27,3 +27,5 @@
   still find them; `changes` reports moves as archived or restored.
 - `dream` prints a consolidation prompt for an agent: the real commands and
   the active entries, likely overlaps grouped first. It changes nothing.
+- `migrate --from <entries.jsonl>` imports a mneme v0 log, keeping legacy ids
+  and authors and reporting every status it maps; `--dry-run` writes nothing.

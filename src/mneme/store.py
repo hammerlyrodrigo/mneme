@@ -136,13 +136,16 @@ class Store:
             for p in self.entry_files()
         )
 
-    def create(self, entry: Entry) -> Entry:
+    def create(self, entry: Entry, known: set[str] | None = None) -> Entry:
         """Assign an unused ID if the entry has none, validate it, and write it.
 
         Raises FormatError before touching disk if the entry is invalid, and
-        FileExistsError rather than overwriting an existing entry.
+        FileExistsError rather than overwriting an existing entry. A caller
+        writing many entries passes `known`, the IDs already loaded, and adds
+        each new ID to it, so memory is not reloaded per entry.
         """
-        known = {e.id for e in self.load().entries}
+        if known is None:
+            known = {e.id for e in self.load().entries}
         if not entry.id:
             taken = set(known)
             while True:

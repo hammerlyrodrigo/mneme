@@ -40,6 +40,7 @@ mneme set D-7f3a2c --summary "..." --keywords a,b
 mneme changes --markdown           # this branch's memory, for a PR description
 mneme check                        # problems; exit 1 for CI
 mneme dream | <agent>              # a prompt to consolidate memory; changes nothing
+mneme migrate --from .memory/log/entries.jsonl --dry-run   # import a mneme v0 log
 ```
 
 Each entry is a small Markdown file under `.memory/<type>s/`, so entries from
