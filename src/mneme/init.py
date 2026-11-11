@@ -80,7 +80,7 @@ def write_agents(root: Path) -> str:
 
 def write_claude_skill(root: Path, force: bool = False) -> str:
     path = root / SKILL_PATH
-    content = SKILL_FRONTMATTER + "# Project memory (Mneme)\n\n" + template("instructions.md")
+    content = SKILL_FRONTMATTER + "# Project memory (Mneme)\n\n" + template("skill.md")
     if path.exists():
         if _read(path) == content:
             return f"{SKILL_PATH.as_posix()} already up to date"

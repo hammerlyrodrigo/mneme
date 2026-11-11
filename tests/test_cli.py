@@ -564,6 +564,15 @@ def test_write_agents_refuses_half_block(mem, capsys):
     assert code == 1 and "fix it by hand" in err
 
 
+def test_agents_block_stays_small_and_skill_has_details(mem, capsys):
+    run(capsys, "init", "--write-agents", "--claude")
+    block = (mem / "AGENTS.md").read_text(encoding="utf-8")
+    # The block loads in every session; details belong in the skill and --help.
+    assert len(block.splitlines()) <= 14
+    skill = (mem / ".claude" / "skills" / "mneme" / "SKILL.md").read_text(encoding="utf-8")
+    assert "--keywords" in skill and "mneme new decision --title" in skill
+
+
 def test_claude_skill_not_overwritten_without_force(mem, capsys):
     run(capsys, "init", "--claude")
     skill = mem / ".claude" / "skills" / "mneme" / "SKILL.md"

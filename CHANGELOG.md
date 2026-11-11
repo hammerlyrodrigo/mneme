@@ -20,3 +20,5 @@
 - `author` falls back to `git config user.name`; a new `agent` field (from
   `--agent`, `MNEME_AGENT`, or detected) records the tool that wrote an entry
   or handover.
+- The AGENTS.md block is cut to a few lines; the full guidance moves to the
+  Claude Code skill and `mneme new --help`.

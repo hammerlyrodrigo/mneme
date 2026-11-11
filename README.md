@@ -17,7 +17,8 @@ uv tool install git+https://github.com/hammerlyrodrigo/mneme
 ```sh
 mneme init --write-agents          # .memory/ + a block in AGENTS.md (--claude for a Claude Code skill)
 
-mneme new decision --title "Use one file per entry" --context "..." --decision "..." --links src/store.py
+mneme new decision --title "Use one file per entry" --context "..." --decision "..." \
+  --summary "One Markdown file per entry, so branches merge" --keywords storage,database --links src/store.py
 mneme new learning --title "..." --tried "..." --result "..." --takeaway "..."
 mneme new question --text "Which auth provider?"
 mneme new reminder --action "Bump deps" --trigger "after v1"
@@ -31,9 +32,10 @@ mneme supersede D-7f3a2c --by D-91b0e4
 mneme handover --summary "..." --done "..." --next "..."
 
 mneme brief                        # session start: small and bounded
-mneme recall auth tokens           # ranked one-liners
+mneme recall auth tokens           # ranked hits, each with a one-line gist
 mneme recall --path src/auth/      # what applies to this code
-mneme show D-7f                    # one entry in full (ID prefixes work)
+mneme show D-7f Q-3c               # entries in full (ID prefixes work; --raw for the file)
+mneme set D-7f3a2c --summary "..." --keywords a,b
 mneme changes --markdown           # this branch's memory, for a PR description
 mneme check                        # problems; exit 1 for CI
 ```

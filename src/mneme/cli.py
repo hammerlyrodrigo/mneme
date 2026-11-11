@@ -84,6 +84,14 @@ FIELDS: dict[str, list[tuple[str, str, str]]] = {
         ("body", "", "free text"),
     ],
 }
+TYPE_HELP = {
+    "decision": "a non-obvious choice and why",
+    "learning": "something tried and what it taught, especially a failed approach",
+    "question": "something deliberately left open",
+    "reminder": "something decided but deferred until a trigger",
+    "concept": "what a project term means",
+    "note": "anything else worth keeping",
+}
 TITLE_FIELD = {"decision": "title", "learning": "title", "question": "text",
                "reminder": "action", "concept": "term", "note": "title"}
 SUPERSEDABLE = ("decision", "learning", "concept", "note")
@@ -501,9 +509,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="replace an existing, edited Claude skill")
 
     p = command("new", cmd_new, "record a new entry")
+    p.epilog = ("Give every entry --summary (one line stating the outcome), --keywords (search words "
+                "the text doesn't use) and --links (the code or spec it is about). "
+                "`mneme new <type> --help` lists a type's fields.")
     types = p.add_subparsers(dest="entry_type", metavar="<type>", required=True)
     for entry_type in TYPES:
-        t = types.add_parser(entry_type, help=f"record a {entry_type}")
+        t = types.add_parser(entry_type, help=TYPE_HELP[entry_type],
+                             description=f"Record a {entry_type}: {TYPE_HELP[entry_type]}.")
         for name, _, help_text in FIELDS[entry_type]:
             t.add_argument(f"--{name}", help=help_text)
         if entry_type == "decision":
