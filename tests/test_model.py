@@ -110,6 +110,30 @@ def test_multi_line_value_has_a_clear_error():
         split_document("---\ntitle: one\n  two\n---\n")
 
 
+@pytest.mark.parametrize(
+    "entry_type, title, summary, body, gist",
+    [
+        ("decision", "T", "Stated", "## Decision\n\nIgnored.\n", "Stated"),
+        ("decision", "T", "", "## Context\n\nWhy.\n\n## Decision\n\nWhat.\nMore.\n", "What."),
+        ("learning", "T", "", "## Tried\n\nX\n\n## Takeaway\n\nDo Y.\n", "Do Y."),
+        ("question", "Which?", "", "## Question\n\nWhich?\n", ""),
+        ("reminder", "Bump", "", "## Trigger\n\nafter v1\n\n## Action\n\nBump\n", "after v1"),
+        ("note", "N", "", "Free text.\n", "Free text."),
+        ("concept", "Entry", "", "## Definition\n\nEntry\n", ""),
+    ],
+)
+def test_gist(entry_type, title, summary, body, gist):
+    entry = Entry(id="", type=entry_type, title=title, status="active", created="", summary=summary, body=body)
+    assert entry.gist() == gist
+
+
+def test_summary_must_be_one_line():
+    entry = Entry(id="D-abcdef", type="decision", title="T", status="accepted",
+                  created="2026-11-02T10:00:00Z", summary="a\nb")
+    with pytest.raises(FormatError, match="summary must be one line"):
+        entry.validate()
+
+
 def test_crlf_and_bom_accepted():
     meta, body = split_document("﻿---\r\nid: D-abcdef\r\n---\r\n\r\nText\r\n")
     assert meta == {"id": "D-abcdef"}

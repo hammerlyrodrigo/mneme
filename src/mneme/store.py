@@ -49,6 +49,7 @@ class Handover:
     branch: str
     updated: str
     author: str = ""
+    agent: str = ""
     body: str = ""
     path: Path | None = None
 
@@ -170,12 +171,14 @@ class Store:
 
     def read_handover(self, path: Path) -> Handover:
         meta, body = split_document(path.read_text(encoding="utf-8"))
-        branch, updated, author = meta.get("branch"), meta.get("updated", ""), meta.get("author", "")
+        branch = meta.get("branch")
+        updated, author, agent = (meta.get(key, "") for key in ("updated", "author", "agent"))
         if not isinstance(branch, str) or not branch:
             raise FormatError("handover is missing 'branch'")
-        if not isinstance(updated, str) or not isinstance(author, str):
-            raise FormatError("handover 'updated' and 'author' must be single values")
-        return Handover(branch=branch, updated=updated, author=author, body=body, path=path)
+        if not all(isinstance(v, str) for v in (updated, author, agent)):
+            raise FormatError("handover 'updated', 'author' and 'agent' must be single values")
+        return Handover(branch=branch, updated=updated, author=author, agent=agent,  # type: ignore[arg-type]
+                        body=body, path=path)
 
     def load_handover(self, branch: str) -> Handover | None:
         path = self.handover_path(branch)
@@ -189,6 +192,8 @@ class Store:
         meta: dict[str, str | list[str]] = {"branch": handover.branch, "updated": handover.updated}
         if handover.author:
             meta["author"] = handover.author
+        if handover.agent:
+            meta["agent"] = handover.agent
         body = handover.body.strip("\n")
         path = self.handover_path(handover.branch)
         atomic_write(path, dump_frontmatter(meta) + ("\n" + body + "\n" if body else ""))

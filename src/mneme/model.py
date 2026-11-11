@@ -77,14 +77,23 @@ SECTIONS = {
     "note": (),
 }
 
+# The section whose first line stands in for a missing `summary`.
+GIST_SECTION = {
+    "decision": "Decision",
+    "learning": "Takeaway",
+    "question": "Answer",
+    "reminder": "Trigger",
+    "concept": "Definition",
+}
+
 HANDOVER_SECTIONS = ("Summary", "Done", "Next", "Blockers")
 
 # Known frontmatter keys, in the order they are written. Unknown keys follow.
 KEY_ORDER = (
-    "id", "type", "title", "status", "created", "updated",
-    "author", "branch", "tags", "links", "supersedes", "resolved_by",
+    "id", "type", "title", "summary", "status", "created", "updated",
+    "author", "agent", "branch", "tags", "keywords", "links", "supersedes", "resolved_by",
 )
-LIST_KEYS = frozenset({"tags", "links", "supersedes"})
+LIST_KEYS = frozenset({"tags", "keywords", "links", "supersedes"})
 
 ID_RE = re.compile(r"^[A-Z]-[0-9a-f]{6}$")
 # Accepted on read so migrated entries keep their IDs: D0001, R-261102-c1d3.
@@ -350,10 +359,16 @@ class Entry:
     title: str
     status: str
     created: str
+    # One line stating the outcome, printed under each recall hit.
+    summary: str = ""
     updated: str = ""
     author: str = ""
+    # The tool that wrote the entry on the author's behalf, if any.
+    agent: str = ""
     branch: str = ""
     tags: list[str] = field(default_factory=list)
+    # Extra search words, such as synonyms the title and body don't use.
+    keywords: list[str] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
     supersedes: list[str] = field(default_factory=list)
     resolved_by: str = ""
@@ -375,6 +390,16 @@ class Entry:
 
     def oneline(self) -> str:
         return f"{self.id}  {self.title}  [{self.status}]"
+
+    def gist(self) -> str:
+        """The summary, else the first line of the type's main section; "" if it adds nothing."""
+        if self.summary:
+            return self.summary
+        preamble, sections = parse_sections(self.body)
+        name = GIST_SECTION.get(self.type)
+        text = sections.get(name, "") if name else preamble
+        line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+        return "" if line == self.title else line
 
     def sections(self) -> dict[str, str]:
         return parse_sections(self.body)[1]
@@ -399,6 +424,8 @@ class Entry:
             raise FormatError(f"{self.id}: empty title")
         if "\n" in self.title:
             raise FormatError(f"{self.id}: title must be one line")
+        if "\n" in self.summary:
+            raise FormatError(f"{self.id}: summary must be one line")
         if self.status not in STATUSES[self.type]:
             allowed = ", ".join(STATUSES[self.type])
             raise FormatError(f"{self.id}: bad status {self.status!r} for {self.type}; expected one of {allowed}")

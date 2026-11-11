@@ -29,7 +29,8 @@ def clock(monkeypatch):
 def mem(repo, monkeypatch):
     """A repo with `mneme init` done, as the working directory."""
     monkeypatch.chdir(repo)
-    monkeypatch.delenv("MNEME_AUTHOR", raising=False)
+    for var in ("MNEME_AUTHOR", "MNEME_AGENT", "CLAUDECODE"):
+        monkeypatch.delenv(var, raising=False)
     assert main(["init"]) == 0
     return repo
 
@@ -114,13 +115,50 @@ def test_new_requires_title_field(mem, capsys):
     assert Store(mem).entry_files() == []
 
 
-def test_author_from_env_then_config(mem, capsys, monkeypatch):
-    (mem / ".memory" / "config.toml").write_text('default_author = "cfg"\n', encoding="utf-8")
+def test_author_from_env_then_config_then_git(mem, capsys, monkeypatch):
     _, out, _ = run(capsys, "new", "note", "--title", "a")
+    assert Store(mem).find(created_id(out)).author == "Test"
+    (mem / ".memory" / "config.toml").write_text('default_author = "cfg"\n', encoding="utf-8")
+    _, out, _ = run(capsys, "new", "note", "--title", "b")
     assert Store(mem).find(created_id(out)).author == "cfg"
     monkeypatch.setenv("MNEME_AUTHOR", "env")
-    _, out, _ = run(capsys, "new", "note", "--title", "b")
+    _, out, _ = run(capsys, "new", "note", "--title", "c")
     assert Store(mem).find(created_id(out)).author == "env"
+
+
+def test_agent_from_flag_env_or_detection(mem, capsys, monkeypatch):
+    _, out, _ = run(capsys, "new", "note", "--title", "a")
+    assert Store(mem).find(created_id(out)).agent == ""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    _, out, _ = run(capsys, "new", "note", "--title", "b")
+    assert Store(mem).find(created_id(out)).agent == "claude-code"
+    monkeypatch.setenv("MNEME_AGENT", "codex")
+    _, out, _ = run(capsys, "new", "note", "--title", "c")
+    assert Store(mem).find(created_id(out)).agent == "codex"
+    _, out, _ = run(capsys, "new", "note", "--title", "d", "--agent", "aider")
+    assert Store(mem).find(created_id(out)).agent == "aider"
+    run(capsys, "handover", "--summary", "x")
+    assert Store(mem).load_handover("main").agent == "codex"
+
+
+def test_new_summary_and_keywords(mem, capsys, monkeypatch):
+    code, out, _ = run(capsys, "new", "decision", "--title", "Use files", "--summary", "One file per entry",
+                       "--keywords", "database,sqlite", "--keywords", "index")
+    assert code == 0
+    entry = Store(mem).find(created_id(out))
+    assert (entry.summary, entry.keywords) == ("One file per entry", ["database", "sqlite", "index"])
+    payload = {"term": "Entry", "summary": "A file", "keywords": ["unit"]}
+    _, out, _ = run(capsys, "new", "concept", "--stdin", stdin=json.dumps(payload), monkeypatch=monkeypatch)
+    entry = Store(mem).find(created_id(out))
+    assert (entry.summary, entry.keywords) == ("A file", ["unit"])
+
+
+def test_new_warns_about_long_sections(mem, capsys):
+    code, _, err = run(capsys, "new", "decision", "--title", "Long", "--context", "x" * 700)
+    assert code == 0
+    assert "Context is 700 characters" in err
+    _, _, err = run(capsys, "new", "decision", "--title", "Short", "--context", "x" * 100)
+    assert err == ""
 
 
 def test_new_stdin(mem, capsys, monkeypatch):
@@ -213,10 +251,40 @@ def test_supersede_command_and_show(mem, capsys):
     _, out, _ = run(capsys, "new", "concept", "--term", "Entry", "--definition", "v2")
     new = created_id(out)
     assert run(capsys, "supersede", old, "--by", new)[0] == 0
-    code, out, _ = run(capsys, "show", old)
+    code, out, _ = run(capsys, "show", old, "--raw")
     assert code == 0
     assert f"# superseded by {new}" in out
     assert "status: superseded" in out
+    _, out, _ = run(capsys, "show", old)
+    assert out == f"# {old}  Entry  [superseded]\nSuperseded by: {new}\n\n## Definition\n\nv1\n"
+
+
+def test_show_several_ids_compact(mem, capsys):
+    _, out, _ = run(capsys, "new", "decision", "--title", "Use files", "--summary", "One file each",
+                    "--decision", "Files.", "--links", "src/a.py", "--tags", "storage")
+    a = created_id(out)
+    _, out, _ = run(capsys, "new", "note", "--title", "A note", "--body", "Text.")
+    b = created_id(out)
+    code, out, _ = run(capsys, "show", a, b)
+    assert code == 0
+    assert out == (f"# {a}  Use files  [accepted]\nSummary: One file each\nLinks: src/a.py\n\n"
+                   f"## Decision\n\nFiles.\n\n# {b}  A note  [active]\n\nText.\n")
+
+
+def test_show_prints_nothing_if_any_id_is_unknown(mem, capsys):
+    _, out, _ = run(capsys, "new", "note", "--title", "A note")
+    code, out, err = run(capsys, "show", created_id(out), "N-000000")
+    assert code == 1 and out == "" and "no entry" in err
+
+
+def test_set_summary_and_keywords(mem, capsys):
+    _, out, _ = run(capsys, "new", "decision", "--title", "Use files")
+    d = created_id(out)
+    code, out, _ = run(capsys, "set", d, "--summary", "One file each", "--keywords", "db,storage")
+    assert code == 0 and "summary, keywords" in out
+    entry = Store(mem).find(d)
+    assert (entry.summary, entry.keywords, entry.status) == ("One file each", ["db", "storage"], "accepted")
+    assert run(capsys, "set", d)[0] == 1
 
 
 # --- handover and brief -----------------------------------------------------
@@ -291,6 +359,34 @@ def test_recall_ranks_and_filters(mem, capsys):
     assert "Auth for admins?" in out
     _, out, _ = run(capsys, "recall", "auth", "--type", "question")
     assert "Nothing found" in out
+
+
+def test_recall_stems_and_uses_keywords(mem, capsys):
+    run(capsys, "new", "decision", "--title", "Editing one entry on two branches conflicts")
+    run(capsys, "new", "decision", "--title", "Generate nothing", "--keywords", "database",
+        "--decision", "No SQLite index.")
+    _, out, _ = run(capsys, "recall", "conflict")
+    assert "conflicts" in out
+    _, out, _ = run(capsys, "recall", "databases")
+    assert out.splitlines() == [out.splitlines()[0], "    No SQLite index."]
+    assert "Generate nothing" in out
+
+
+def test_recall_partial_matches_are_labelled(mem, capsys):
+    run(capsys, "new", "decision", "--title", "Merging handovers", "--summary", "Each branch has one")
+    run(capsys, "new", "note", "--title", "Unrelated")
+    _, out, _ = run(capsys, "recall", "merge", "conflict")
+    lines = out.splitlines()
+    assert lines[0] == "No entry has every word. Closest partial matches:"
+    assert "Merging handovers  (no: conflict)" in lines[1]
+    assert lines[2] == "    Each branch has one"
+    assert len(lines) == 3
+
+
+def test_recall_ignores_stopwords_and_hides_default_status(mem, capsys):
+    run(capsys, "new", "question", "--text", "Which identity provider?")
+    _, out, _ = run(capsys, "recall", "what", "is", "the", "identity", "provider")
+    assert out.splitlines()[0].endswith("Which identity provider?")
 
 
 def test_recall_by_path(mem, capsys, monkeypatch):
