@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:16Z
 author: claude
 branch: main
 tags: [scope]
+keywords: [scope, types, embeddings, semantic, tasks, specs]
 links: [src/mneme/model.py]
 ---
 

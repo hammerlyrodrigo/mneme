@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:15Z
 author: claude
 branch: main
 tags: [packaging]
+keywords: [version, tomllib, compatibility]
 links: [pyproject.toml, .github/workflows/ci.yml]
 ---
 

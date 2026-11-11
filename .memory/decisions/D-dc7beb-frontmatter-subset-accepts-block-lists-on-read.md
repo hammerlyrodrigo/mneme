@@ -7,6 +7,7 @@ created: 2026-11-11T08:38:58Z
 author: unspecified
 branch: recall-and-format
 tags: [format]
+keywords: [yaml, frontmatter, parser, list, editor, obsidian]
 links: [src/mneme/model.py]
 supersedes: [D-9b188b]
 ---

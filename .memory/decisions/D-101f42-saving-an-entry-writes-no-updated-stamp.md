@@ -7,6 +7,7 @@ created: 2026-11-11T08:38:58Z
 author: unspecified
 branch: recall-and-format
 tags: [git, format]
+keywords: [timestamp, merge, conflict, identical, edit]
 links: [src/mneme/store.py, tests/test_merge.py]
 supersedes: [D-6538b2]
 ---

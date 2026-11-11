@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:16Z
 author: claude
 branch: main
 tags: [cli]
+keywords: [create, add, record, flags, json, stdin]
 links: [src/mneme/cli.py]
 ---
 

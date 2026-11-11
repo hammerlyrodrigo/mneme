@@ -6,6 +6,7 @@ status: active
 created: 2026-11-02T13:05:19Z
 author: claude
 branch: main
+keywords: [session, checkpoint, continuity]
 links: [src/mneme/store.py]
 ---
 

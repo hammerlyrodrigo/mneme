@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:17Z
 author: claude
 branch: main
 tags: [format]
+keywords: [time, date, timezone, utc]
 links: [src/mneme/model.py]
 ---
 

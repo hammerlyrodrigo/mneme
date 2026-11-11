@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:17Z
 author: claude
 branch: main
 tags: [git, bug]
+keywords: [git, status, porcelain, whitespace]
 links: [src/mneme/root.py, src/mneme/changes.py]
 ---
 

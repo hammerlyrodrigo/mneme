@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:18Z
 author: claude
 branch: main
 tags: [legacy]
+keywords: [legacy, cleanup, delete]
 links: [legacy/mneme_v0.py]
 ---
 

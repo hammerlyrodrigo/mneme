@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:17Z
 author: claude
 branch: main
 tags: [testing, ci]
+keywords: [flaky, test, clock, ci, timestamp]
 links: [tests/test_cli.py]
 ---
 

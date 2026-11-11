@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:18Z
 author: claude
 branch: main
 tags: [storage, product]
+keywords: [storage, files, scale, clutter, archive, compact]
 ---
 
 ## Question

@@ -2,11 +2,13 @@
 id: D-0a1f83
 type: decision
 title: IDs are a type letter plus 6 random hex digits, checked unique
+summary: Type letter + 6 random hex digits, checked against existing ids and unparseable filenames
 status: accepted
 created: 2026-11-02T13:05:15Z
 author: claude
 branch: main
 tags: [ids]
+keywords: [identifier, collision, random, hash]
 links: [src/mneme/model.py, src/mneme/store.py]
 ---
 

@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:18Z
 author: claude
 branch: main
 tags: [testing, git]
+keywords: [test, git, mock, merge, ci]
 links: [tests/test_merge.py, tests/conftest.py]
 ---
 
