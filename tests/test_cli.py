@@ -23,7 +23,6 @@ def clock(monkeypatch):
         return format_ts(start + timedelta(seconds=next(ticks)))
 
     monkeypatch.setattr("mneme.cli.now_utc", fake_now)
-    monkeypatch.setattr("mneme.store.now_utc", fake_now)
 
 
 @pytest.fixture

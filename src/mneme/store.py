@@ -14,7 +14,6 @@ from mneme.model import (
     branch_filename,
     dump_frontmatter,
     new_id,
-    now_utc,
     split_document,
 )
 from mneme.root import MEMORY_DIRNAME
@@ -151,10 +150,13 @@ class Store:
         return entry
 
     def save(self, entry: Entry) -> None:
-        """Rewrite an existing entry in place, keeping its filename."""
+        """Rewrite an existing entry in place, keeping its filename.
+
+        No `updated` stamp: git already records when a file changed, and a
+        stamp would make two identical edits on two branches conflict.
+        """
         if entry.path is None:
             raise ValueError(f"{entry.id} was not loaded from disk; use create()")
-        entry.updated = now_utc()
         entry.validate()
         atomic_write(entry.path, entry.to_text())
 

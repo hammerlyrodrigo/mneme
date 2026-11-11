@@ -57,6 +57,26 @@ def test_conflicting_status_changes_conflict(repo):
     assert [p.path.name for p in store.load().problems] == [question.path.name]
 
 
+def test_identical_edits_on_two_branches_merge_cleanly(repo):
+    store = Store(repo)
+    reminder = store.create(make(entry_type="reminder", title="Bump deps after v1"))
+    commit_all(repo, "base")
+
+    for branch in ("feature/a", "feature/b"):
+        run_git(repo, "checkout", "-q", "-b", branch, "main")
+        entry = store.find(reminder.id)
+        entry.status = "done"
+        entry.set_section("Note", "Bumped.")
+        store.save(entry)
+        commit_all(repo, f"done on {branch}")
+
+    run_git(repo, "checkout", "-q", "main")
+    for branch in ("feature/a", "feature/b"):
+        result = run_git(repo, "merge", "--no-edit", branch, check=False)
+        assert result.returncode == 0, result.stdout + result.stderr
+    assert store.find(reminder.id).status == "done"
+
+
 def test_status_change_and_new_entry_merge_cleanly(repo):
     store = Store(repo)
     reminder = store.create(make(entry_type="reminder", title="Bump deps after v1"))
