@@ -85,7 +85,7 @@ def test_find_exact_beats_prefix(store):
     assert store.find("D00010").id == "D00010"
 
 
-def test_save_keeps_filename_and_sets_updated(store):
+def test_save_keeps_filename_and_writes_no_updated(store):
     entry = store.create(make(entry_type="question", title="Why?"))
     path = entry.path
     entry.title = "Why, really?"
@@ -95,8 +95,16 @@ def test_save_keeps_filename_and_sets_updated(store):
     assert entry.path == path
     again = store.find(entry.id)
     assert again.status == "resolved"
-    assert again.updated.endswith("Z")
+    assert again.updated == ""
+    assert "updated:" not in path.read_text(encoding="utf-8")
     assert again.section("Answer") == "Because."
+
+
+def test_save_keeps_an_existing_updated(store):
+    entry = store.create(make(updated="2025-01-02T03:04:05Z"))
+    entry.status = "deprecated"
+    store.save(entry)
+    assert store.find(entry.id).updated == "2025-01-02T03:04:05Z"
 
 
 def test_save_refuses_invalid_and_leaves_file(store):

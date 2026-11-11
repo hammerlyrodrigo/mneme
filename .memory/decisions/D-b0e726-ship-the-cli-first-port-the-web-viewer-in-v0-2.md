@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:16Z
 author: claude
 branch: main
 tags: [scope, viewer]
+keywords: [viewer, serve, web, ui, roadmap, release]
 links: [legacy/mneme_v0.py]
 ---
 

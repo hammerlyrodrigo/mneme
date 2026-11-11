@@ -6,6 +6,7 @@ status: active
 created: 2026-11-02T13:05:18Z
 author: claude
 branch: main
+keywords: [status, closed, settled, archived, hidden]
 links: [src/mneme/model.py]
 ---
 

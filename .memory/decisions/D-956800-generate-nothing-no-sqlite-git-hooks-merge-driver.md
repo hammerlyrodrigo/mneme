@@ -2,11 +2,13 @@
 id: D-956800
 type: decision
 title: Generate nothing; no SQLite, git hooks, merge driver or .gitignore management
+summary: Only entry files are committed; everything is read on demand, nothing derived to go stale
 status: accepted
 created: 2026-11-02T13:05:15Z
 author: claude
 branch: main
 tags: [storage]
+keywords: [database, index, cache, sqlite, hooks, sync, performance]
 links: [src/mneme/store.py]
 ---
 

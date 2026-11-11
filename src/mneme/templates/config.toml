@@ -9,4 +9,5 @@
 # spec_dirs = ["specs"]
 
 # Author used when neither --author nor MNEME_AUTHOR is set.
+# Default: git config user.name.
 # default_author = ""

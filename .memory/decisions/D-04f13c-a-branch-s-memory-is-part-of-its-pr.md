@@ -2,11 +2,13 @@
 id: D-04f13c
 type: decision
 title: A branch's memory is part of its PR
+summary: mneme changes lists the branch's entries; --markdown prints them for the PR description
 status: accepted
 created: 2026-11-02T13:05:16Z
 author: claude
 branch: main
 tags: [git, review]
+keywords: [pull, request, review, diff]
 links: [src/mneme/changes.py, src/mneme/init.py]
 ---
 

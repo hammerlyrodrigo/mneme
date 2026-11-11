@@ -2,7 +2,7 @@
 id: D-6538b2
 type: decision
 title: Editing one entry on two branches always conflicts
-status: accepted
+status: superseded
 created: 2026-11-02T13:05:17Z
 author: claude
 branch: main

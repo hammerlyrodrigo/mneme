@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:17Z
 author: claude
 branch: main
 tags: [scope]
+keywords: [consolidation, cleanup, prompt, summarise]
 ---
 
 ## Context

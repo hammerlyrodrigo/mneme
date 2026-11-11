@@ -2,11 +2,13 @@
 id: D-6b7078
 type: decision
 title: Store memory as one Markdown file per entry
+summary: One Markdown file per entry, so entries from different branches never conflict
 status: accepted
 created: 2026-11-02T13:05:15Z
 author: claude
 branch: main
 tags: [storage, git]
+keywords: [storage, database, jsonl, format, merge]
 links: [src/mneme/store.py, src/mneme/model.py, tests/test_merge.py]
 ---
 

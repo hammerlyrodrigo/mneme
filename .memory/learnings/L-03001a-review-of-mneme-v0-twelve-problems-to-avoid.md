@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:17Z
 author: claude
 branch: main
 tags: [legacy]
+keywords: [legacy, v0, problems, lessons]
 links: [legacy/mneme_v0.py]
 ---
 

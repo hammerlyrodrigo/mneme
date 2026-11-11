@@ -2,11 +2,13 @@
 id: D-42cdb6
 type: decision
 title: One handover file per branch, overwritten each time
+summary: Each branch overwrites its own .memory/handover/<branch>.md; git keeps the history
 status: accepted
 created: 2026-11-02T13:05:15Z
 author: claude
 branch: main
 tags: [handover]
+keywords: [session, checkpoint, overwrite]
 links: [src/mneme/store.py, src/mneme/check.py]
 ---
 

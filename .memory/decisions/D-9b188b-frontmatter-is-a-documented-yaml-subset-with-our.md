@@ -2,7 +2,7 @@
 id: D-9b188b
 type: decision
 title: Frontmatter is a documented YAML subset with our own parser
-status: accepted
+status: superseded
 created: 2026-11-02T13:05:15Z
 author: claude
 branch: main

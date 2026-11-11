@@ -7,6 +7,7 @@ created: 2026-11-02T13:05:18Z
 author: claude
 branch: main
 tags: [ci]
+keywords: [ci, github, actions, node]
 links: [.github/workflows/ci.yml]
 ---
 

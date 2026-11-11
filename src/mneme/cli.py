@@ -32,6 +32,7 @@ from mneme.root import (
     RootNotFound,
     current_branch,
     find_root,
+    git,
     load_config,
     main_branch,
 )
@@ -83,10 +84,26 @@ FIELDS: dict[str, list[tuple[str, str, str]]] = {
         ("body", "", "free text"),
     ],
 }
+TYPE_HELP = {
+    "decision": "a non-obvious choice and why",
+    "learning": "something tried and what it taught, especially a failed approach",
+    "question": "something deliberately left open",
+    "reminder": "something decided but deferred until a trigger",
+    "concept": "what a project term means",
+    "note": "anything else worth keeping",
+}
 TITLE_FIELD = {"decision": "title", "learning": "title", "question": "text",
                "reminder": "action", "concept": "term", "note": "title"}
 SUPERSEDABLE = ("decision", "learning", "concept", "note")
-LIST_FIELDS = ("tags", "links", "supersedes")
+LIST_FIELDS = ("tags", "keywords", "links", "supersedes")
+# Fields every type takes, besides its own.
+COMMON_FIELDS = ("summary", "tags", "keywords", "links", "author", "agent")
+# Longer sections still work, but short ones recall and read better.
+SECTION_SOFT_LIMIT = 600
+# Characters of an entry's gist printed under a recall hit.
+GIST_WIDTH = 140
+# Environment variables that tell which agent is running, checked after MNEME_AGENT.
+AGENT_ENV = (("CLAUDECODE", "claude-code"),)
 
 
 def split_list(values: list[str] | str | None) -> list[str]:
@@ -133,7 +150,20 @@ class Context:
         return main_branch(self.root, self.config)
 
     def author(self, given: str | None) -> str:
-        return given or os.environ.get("MNEME_AUTHOR") or self.config.default_author or "unspecified"
+        return (given or os.environ.get("MNEME_AUTHOR") or self.config.default_author
+                or self.git_user or "unspecified")
+
+    @cached_property
+    def git_user(self) -> str:
+        try:
+            return git(["config", "user.name"], self.root) or ""
+        except RootNotFound:
+            return ""
+
+    def agent(self, given: str | None) -> str:
+        if given or os.environ.get("MNEME_AGENT"):
+            return given or os.environ["MNEME_AGENT"]
+        return next((name for var, name in AGENT_ENV if os.environ.get(var)), "")
 
     def rel(self, path: Path | None) -> str:
         if path is None:
@@ -155,6 +185,10 @@ class Context:
 
 def out(text: str = "") -> None:
     print(text)
+
+
+def warn(text: str) -> None:
+    print(f"mneme: note: {text}", file=sys.stderr)
 
 
 # --- commands: writing ------------------------------------------------------
@@ -185,7 +219,7 @@ def read_stdin_fields(entry_type: str) -> dict[str, object]:
         raise UsageError(f"--stdin: invalid JSON: {exc}") from None
     if not isinstance(data, dict):
         raise UsageError("--stdin: expected a JSON object")
-    allowed = {name for name, _, _ in FIELDS[entry_type]} | {"tags", "links", "author"}
+    allowed = {name for name, _, _ in FIELDS[entry_type]} | set(COMMON_FIELDS)
     if entry_type in SUPERSEDABLE:
         allowed.add("supersedes")
     if entry_type == "decision":
@@ -209,7 +243,7 @@ def cmd_new(ctx: Context, args) -> int:
     values: dict[str, object] = {}
     if args.stdin:
         values.update(read_stdin_fields(entry_type))
-    for name in [n for n, _, _ in FIELDS[entry_type]] + ["tags", "links", "supersedes", "status", "author"]:
+    for name in [n for n, _, _ in FIELDS[entry_type]] + [*COMMON_FIELDS, "supersedes", "status"]:
         given = getattr(args, name, None)
         if given not in (None, []):
             values[name] = given  # flags win over --stdin
@@ -247,15 +281,22 @@ def cmd_new(ctx: Context, args) -> int:
         title=title,
         status=str(values.get("status") or DEFAULT_STATUS[entry_type]),
         created=now_utc(),
+        summary=str(values.get("summary") or "").strip(),
         author=ctx.author(values.get("author")),  # type: ignore[arg-type]
+        agent=ctx.agent(values.get("agent")),  # type: ignore[arg-type]
         branch=ctx.branch or "",
         tags=split_list(values.get("tags")),  # type: ignore[arg-type]
+        keywords=split_list(values.get("keywords")),  # type: ignore[arg-type]
         links=[link.replace("\\", "/") for link in split_list(values.get("links"))],  # type: ignore[arg-type]
         supersedes=[old.id for old in replaced],
         body=render_sections(preamble, sections, SECTIONS[entry_type]),
     )
     store.create(entry)
     out(f"Created {entry.id}  {ctx.rel(entry.path)}")
+    for name, text in [("body", preamble), *sections.items()]:
+        if len(text) > SECTION_SOFT_LIMIT:
+            warn(f"{name} is {len(text)} characters; short entries recall better "
+                 f"(aim for under {SECTION_SOFT_LIMIT})")
     for old in replaced:
         old.status = "superseded"
         store.save(old)
@@ -264,12 +305,23 @@ def cmd_new(ctx: Context, args) -> int:
 
 
 def cmd_set(ctx: Context, args) -> int:
+    if args.status is None and args.summary is None and args.keywords is None:
+        raise UsageError("set needs --status, --summary or --keywords")
     entry = ctx.store.find(args.id)
-    if args.status not in STATUSES[entry.type]:
-        raise UsageError(f"{entry.id}: status must be one of {', '.join(STATUSES[entry.type])}")
-    entry.status = args.status
+    changed = []
+    if args.status is not None:
+        if args.status not in STATUSES[entry.type]:
+            raise UsageError(f"{entry.id}: status must be one of {', '.join(STATUSES[entry.type])}")
+        entry.status = args.status
+        changed.append(f"status {entry.status}")
+    if args.summary is not None:
+        entry.summary = args.summary.strip()
+        changed.append("summary")
+    if args.keywords is not None:
+        entry.keywords = split_list(args.keywords)
+        changed.append("keywords")
     ctx.store.save(entry)
-    out(f"{entry.id} is now {entry.status}")
+    out(f"{entry.id}: set {', '.join(changed)}")
     return 0
 
 
@@ -329,6 +381,7 @@ def cmd_handover(ctx: Context, args) -> int:
         branch=branch,
         updated=now_utc(),
         author=ctx.author(args.author),
+        agent=ctx.agent(args.agent),
         body=render_sections("", {k: v.strip() for k, v in sections.items()}, HANDOVER_SECTIONS),
     )
     path = ctx.store.write_handover(handover)
@@ -350,14 +403,25 @@ def cmd_recall(ctx: Context, args) -> int:
     if not query and path is None:
         raise UsageError("recall needs words to search for, --path, or both")
     entries = ctx.store.load().entries
-    found = recall(entries, query, path, include_inactive=args.all, types=tuple(args.type or ()))
-    if not found:
-        out("Nothing found." + ("" if args.all else " (--all includes settled and superseded entries)"))
+    result = recall(entries, query, path, include_inactive=args.all, types=tuple(args.type or ()))
+    hits = result.hits
+    if not hits:
+        out("Nothing found. Try other words" + ("." if args.all else ", or --all for settled entries."))
         return 0
-    for entry in found[: args.limit]:
-        out(f"{entry.type:<9} {entry.oneline()}")
-    if len(found) > args.limit:
-        out(f"(+{len(found) - args.limit} more; --limit to see them)")
+    if result.partial:
+        out("No entry has every word. Closest partial matches:")
+    for hit in hits[: args.limit]:
+        entry = hit.entry
+        line = f"{entry.id}  {entry.title}"
+        if entry.status != DEFAULT_STATUS[entry.type]:
+            line += f"  [{entry.status}]"
+        if hit.missing:
+            line += f"  (no: {', '.join(hit.missing)})"
+        out(line)
+        if gist := entry.gist():
+            out(f"    {first_line(gist, GIST_WIDTH)}")
+    if len(hits) > args.limit:
+        out(f"(+{len(hits) - args.limit} more; --limit to see them)")
     return 0
 
 
@@ -376,12 +440,28 @@ def cmd_list(ctx: Context, args) -> int:
 def cmd_show(ctx: Context, args) -> int:
     store = ctx.store
     entries = store.load().entries
-    entry = store.find(args.id, entries)
-    newer = [e.id for e in entries if entry.id in e.supersedes]
-    out(f"# {ctx.rel(entry.path)}")
-    if newer:
-        out(f"# superseded by {', '.join(newer)}")
-    sys.stdout.write(entry.to_text())
+    # Look every id up first, so a typo prints nothing rather than half the answer.
+    found = [store.find(ref, entries) for ref in args.ids]
+    for n, entry in enumerate(found):
+        newer = [e.id for e in entries if entry.id in e.supersedes]
+        if n:
+            out()
+        if args.raw:
+            out(f"# {ctx.rel(entry.path)}")
+            if newer:
+                out(f"# superseded by {', '.join(newer)}")
+            sys.stdout.write(entry.to_text())
+            continue
+        out(f"# {entry.oneline()}")
+        for label, value in (("Summary", entry.summary), ("Links", ", ".join(entry.links)),
+                             ("Supersedes", ", ".join(entry.supersedes)),
+                             ("Superseded by", ", ".join(newer)), ("Resolved by", entry.resolved_by)):
+            if value:
+                out(f"{label}: {value}")
+        body = entry.body.strip("\n")
+        if body:
+            out()
+            out(body)
     return 0
 
 
@@ -429,9 +509,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="replace an existing, edited Claude skill")
 
     p = command("new", cmd_new, "record a new entry")
+    p.epilog = ("Give every entry --summary (one line stating the outcome), --keywords (search words "
+                "the text doesn't use) and --links (the code or spec it is about). "
+                "`mneme new <type> --help` lists a type's fields.")
     types = p.add_subparsers(dest="entry_type", metavar="<type>", required=True)
     for entry_type in TYPES:
-        t = types.add_parser(entry_type, help=f"record a {entry_type}")
+        t = types.add_parser(entry_type, help=TYPE_HELP[entry_type],
+                             description=f"Record a {entry_type}: {TYPE_HELP[entry_type]}.")
         for name, _, help_text in FIELDS[entry_type]:
             t.add_argument(f"--{name}", help=help_text)
         if entry_type == "decision":
@@ -439,15 +523,21 @@ def build_parser() -> argparse.ArgumentParser:
         if entry_type in SUPERSEDABLE:
             t.add_argument("--supersedes", action="append", metavar="ID[,ID]",
                            help="entries this one replaces; they are marked superseded")
+        t.add_argument("--summary", help="one line stating the outcome; recall prints it")
         t.add_argument("--tags", action="append", metavar="TAG[,TAG]")
+        t.add_argument("--keywords", action="append", metavar="WORD[,WORD]",
+                       help="extra search words, such as synonyms the text doesn't use")
         t.add_argument("--links", action="append", metavar="PATH[,PATH]",
                        help="code or spec paths this entry is about (file, dir/, spec.md#anchor)")
-        t.add_argument("--author", help="who recorded it (default: MNEME_AUTHOR or config)")
+        t.add_argument("--author", help="who recorded it (default: MNEME_AUTHOR, config, git user.name)")
+        t.add_argument("--agent", help="the agent recording it for the author (default: MNEME_AGENT or detected)")
         t.add_argument("--stdin", action="store_true", help="read the same fields as a JSON object")
 
-    p = command("set", cmd_set, "change an entry's status")
+    p = command("set", cmd_set, "change an entry's status, summary or keywords")
     p.add_argument("id")
-    p.add_argument("--status", required=True)
+    p.add_argument("--status")
+    p.add_argument("--summary", help="replace the one-line summary")
+    p.add_argument("--keywords", action="append", metavar="WORD[,WORD]", help="replace the keywords")
 
     p = command("resolve", cmd_resolve, "answer an open question")
     p.add_argument("id")
@@ -469,6 +559,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--blockers")
     p.add_argument("--branch", help="default: the current branch")
     p.add_argument("--author")
+    p.add_argument("--agent")
 
     command("brief", cmd_brief, "the session-start view: handover, open loops, recent decisions")
 
@@ -485,8 +576,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="include settled and superseded entries")
     p.add_argument("--limit", type=int)
 
-    p = command("show", cmd_show, "print one entry in full")
-    p.add_argument("id", help="an id or unique id prefix")
+    p = command("show", cmd_show, "print entries: title, status, links and body")
+    p.add_argument("ids", nargs="+", metavar="id", help="ids or unique id prefixes")
+    p.add_argument("--raw", action="store_true", help="print the whole file, with all frontmatter")
 
     p = command("changes", cmd_changes, "entries added or changed on this branch")
     p.add_argument("--base", help="branch to compare against (default: the main branch)")

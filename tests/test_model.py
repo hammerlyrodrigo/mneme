@@ -69,6 +69,71 @@ def test_hand_written_frontmatter():
     assert body == "Body\n"
 
 
+def test_block_lists_accepted():
+    text = (
+        "---\n"
+        "tags:\n"
+        "  - storage\n"
+        "  - 'git, merge'\n"
+        "  # a comment\n"
+        "  - \"x\"\n"
+        "links:\n"
+        "- src/a.py\n"
+        "empty:\n"
+        "title: T\n"
+        "---\n"
+    )
+    meta, _ = split_document(text)
+    assert meta == {"tags": ["storage", "git, merge", "x"], "links": ["src/a.py"],
+                    "empty": "", "title": "T"}
+
+
+def test_block_list_entry_round_trips_inline():
+    text = (
+        "---\nid: D-abcdef\ntype: decision\ntitle: T\nstatus: accepted\n"
+        "created: 2026-11-02T10:00:00Z\ntags:\n  - a\n  - b\n---\n"
+    )
+    entry = Entry.from_text(text)
+    assert entry.tags == ["a", "b"]
+    assert "tags: [a, b]\n" in entry.to_text()
+
+
+def test_block_list_on_single_value_key_rejected():
+    text = ("---\nid: D-abcdef\ntype: decision\ntitle:\n  - a\nstatus: accepted\n"
+            "created: 2026-11-02T10:00:00Z\n---\n")
+    with pytest.raises(FormatError, match="title must be a single value"):
+        Entry.from_text(text)
+
+
+def test_multi_line_value_has_a_clear_error():
+    with pytest.raises(FormatError, match="multi-line values are not supported"):
+        split_document("---\ntitle: one\n  two\n---\n")
+
+
+@pytest.mark.parametrize(
+    "entry_type, title, summary, body, gist",
+    [
+        ("decision", "T", "Stated", "## Decision\n\nIgnored.\n", "Stated"),
+        ("decision", "T", "", "## Context\n\nWhy.\n\n## Decision\n\nWhat.\nMore.\n", "What."),
+        ("learning", "T", "", "## Tried\n\nX\n\n## Takeaway\n\nDo Y.\n", "Do Y."),
+        ("question", "Which?", "", "## Question\n\nWhich?\n", ""),
+        ("reminder", "Bump", "", "## Trigger\n\nafter v1\n\n## Action\n\nBump\n", "after v1"),
+        ("note", "N", "", "Free text.\n", "Free text."),
+        ("concept", "Entry", "", "## Definition\n\nEntry\n", ""),
+    ],
+)
+def test_gist(entry_type, title, summary, body, gist):
+    entry = Entry(id="", type=entry_type, title=title, status="active", created="", summary=summary, body=body)
+    assert entry.gist() == gist
+
+
+def test_summary_must_be_one_line():
+    entry = Entry(id="D-abcdef", type="decision", title="T", status="accepted",
+                  created="2026-11-02T10:00:00Z", summary="a\nb")
+    with pytest.raises(FormatError, match="summary must be one line"):
+        entry.validate()
+
+
 def test_crlf_and_bom_accepted():
     meta, body = split_document("﻿---\r\nid: D-abcdef\r\n---\r\n\r\nText\r\n")
     assert meta == {"id": "D-abcdef"}
@@ -88,6 +153,10 @@ def test_crlf_and_bom_accepted():
         '---\nq: "open\n---\n',
         "---\nq: 'a' trailing\n---\n",
         "---\njust text\n---\n",
+        "---\n- orphan item\n---\n",
+        "---\ntags:\n  - [a, b]\n---\n",
+        "---\ntags:\n  -\n---\n",
+        "---\ntitle: x\n  - a\n---\n",
     ],
 )
 def test_bad_frontmatter_rejected(text):

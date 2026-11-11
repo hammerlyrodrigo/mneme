@@ -2,11 +2,13 @@
 id: D-877ca2
 type: decision
 title: Memory is recalled actively, not loaded into context in bulk
+summary: brief is bounded; recall and show fetch the rest on demand, so context stays small
 status: accepted
 created: 2026-11-02T13:05:16Z
 author: claude
 branch: main
 tags: [retrieval, agents]
+keywords: [context, tokens, load, retrieval]
 links: [src/mneme/brief.py, src/mneme/recall.py, src/mneme/templates/instructions.md]
 ---
 
