@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -26,7 +27,9 @@ from mneme.model import (
     now_utc,
     render_sections,
 )
-from mneme.recall import recall
+from mneme.dream import DREAM_TYPES, build_dream
+from mneme.migrate import MigrateError, plan_migration
+from mneme.recall import links_path, recall
 from mneme.root import (
     ConfigError,
     RootNotFound,
@@ -44,7 +47,7 @@ class UsageError(Exception):
 
 
 ERRORS = (UsageError, FormatError, ConfigError, RootNotFound, NotFound, Ambiguous,
-          FileExistsError, ChangesError, ValueError)
+          FileExistsError, ChangesError, MigrateError, ValueError)
 
 
 # --- per-type fields --------------------------------------------------------
@@ -322,6 +325,8 @@ def cmd_set(ctx: Context, args) -> int:
         changed.append("keywords")
     ctx.store.save(entry)
     out(f"{entry.id}: set {', '.join(changed)}")
+    if entry.active and ctx.store.is_archived(entry):
+        warn(f"{entry.id} is archived; run `mneme archive --restore {entry.id}` to bring it back")
     return 0
 
 
@@ -368,6 +373,77 @@ def cmd_supersede(ctx: Context, args) -> int:
     old.status = "superseded"
     store.save(old)
     out(f"{old.id} superseded by {new.id}")
+    return 0
+
+
+def cmd_archive(ctx: Context, args) -> int:
+    store = ctx.store
+    entries = store.load().entries
+    if args.inactive and (args.ids or args.restore):
+        raise UsageError("--inactive archives every inactive entry; don't combine it with ids or --restore")
+    if args.inactive:
+        chosen = [e for e in entries if not e.active and not store.is_archived(e)]
+    elif args.ids:
+        chosen = [store.find(ref, entries) for ref in args.ids]
+    else:
+        raise UsageError("archive needs ids or --inactive")
+    # Check every entry before moving any, so a bad id moves nothing.
+    for entry in chosen:
+        if args.restore and not store.is_archived(entry):
+            raise UsageError(f"{entry.id} is not archived")
+        if not args.restore:
+            if store.is_archived(entry):
+                raise UsageError(f"{entry.id} is already archived")
+            if entry.active:
+                raise UsageError(f"{entry.id} is {entry.status}; only settled or replaced entries are archived")
+    for entry in chosen:
+        path = store.move(entry, archived=not args.restore)
+        out(f"{'Restored' if args.restore else 'Archived'} {entry.id}  {ctx.rel(path)}")
+    if not chosen:
+        out("Nothing to archive.")
+    return 0
+
+
+def cmd_migrate(ctx: Context, args) -> int:
+    store = ctx.store
+    plan = plan_migration(Path(args.from_path))
+    for note in plan.notes:
+        out(f"note: {note}")
+    if plan.problems:
+        for problem in plan.problems:
+            out(f"problem: {problem}")
+        out(f"Nothing written: {len(plan.problems)} record(s) can't be migrated.")
+        return 1
+
+    known = {e.id for e in store.load().entries}
+    new = [e for e in plan.entries if e.id not in known]
+    if len(new) < len(plan.entries):
+        out(f"note: {len(plan.entries) - len(new)} entries already exist here and are skipped")
+    counts = Counter((e.type, e.status) for e in new)
+    verb = "Would migrate" if args.dry_run else "Migrated"
+    out(f"{verb} {len(new)} entries:")
+    for (entry_type, status), n in sorted(counts.items()):
+        out(f"  {n:>4} {entry_type} {status}")
+
+    handover_note = ""
+    if plan.handover:
+        plan.handover.branch = ctx.main
+        if store.load_handover(ctx.main):
+            handover_note = f"kept the existing {ctx.main} handover; the log's newest one was not imported"
+        else:
+            handover_note = f"newest handover becomes the {ctx.main} handover"
+        if plan.handovers_dropped:
+            handover_note += f" ({plan.handovers_dropped} older ones are left in the log's git history)"
+        out(f"note: {handover_note}")
+    if args.dry_run:
+        return 0
+
+    for entry in new:
+        store.create(entry, known)
+        known.add(entry.id)
+    if plan.handover and not store.load_handover(ctx.main):
+        store.write_handover(plan.handover)
+    out("Run `mneme check`, then commit .memory/ and remove the old log in the same commit.")
     return 0
 
 
@@ -465,6 +541,34 @@ def cmd_show(ctx: Context, args) -> int:
     return 0
 
 
+def usage_lines() -> list[str]:
+    """The commands `dream` may tell an agent to run, with their real flags."""
+    lines = []
+    for entry_type in DREAM_TYPES:
+        flags = " ".join(f"--{name} ..." for name, _, _ in FIELDS[entry_type])
+        lines.append(f"mneme new {entry_type} {flags} --summary ... --keywords A,B "
+                     f"--tags A,B --links PATH,PATH --supersedes ID,ID")
+    lines += [
+        "mneme set <id> [--status STATUS] [--summary ...] [--keywords A,B]",
+        "mneme supersede <old-id> --by <new-id>",
+        "mneme archive <id> [<id>...]",
+        "mneme show <id> [<id>...]",
+    ]
+    return lines
+
+
+def cmd_dream(ctx: Context, args) -> int:
+    entries = ctx.store.load().entries
+    if args.tag:
+        tag = args.tag.lower()
+        entries = [e for e in entries if tag in {t.lower() for t in [*e.tags, *e.keywords]}]
+    if args.path is not None:
+        path = ctx.repo_path(args.path)
+        entries = [e for e in entries if links_path(e, path)]
+    sys.stdout.write(build_dream(entries, usage_lines(), args.limit))
+    return 0
+
+
 def cmd_changes(ctx: Context, args) -> int:
     base = args.base or ctx.main
     if not args.base and ctx.branch == base:
@@ -552,6 +656,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("old")
     p.add_argument("--by", required=True, metavar="ID")
 
+    p = command("archive", cmd_archive,
+                "move settled or replaced entries to .memory/archive/; show and --all still find them")
+    p.add_argument("ids", nargs="*", metavar="id")
+    p.add_argument("--inactive", action="store_true", help="archive every inactive entry")
+    p.add_argument("--restore", action="store_true", help="move archived entries back")
+
     p = command("handover", cmd_handover, "write this branch's handover (overwrites the last one)")
     p.add_argument("--summary", required=True)
     p.add_argument("--done")
@@ -579,6 +689,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("show", cmd_show, "print entries: title, status, links and body")
     p.add_argument("ids", nargs="+", metavar="id", help="ids or unique id prefixes")
     p.add_argument("--raw", action="store_true", help="print the whole file, with all frontmatter")
+
+    p = command("migrate", cmd_migrate, "import a mneme v0 log (.memory/log/entries.jsonl)")
+    p.add_argument("--from", dest="from_path", required=True, metavar="ENTRIES_JSONL")
+    p.add_argument("--dry-run", action="store_true", help="report what would be written; write nothing")
+
+    p = command("dream", cmd_dream,
+                "print a prompt asking an agent to consolidate memory; changes nothing itself")
+    p.add_argument("--tag", help="only entries with this tag or keyword")
+    p.add_argument("--path", help="only entries linked to this file or directory")
+    p.add_argument("--limit", type=int, default=80, help="newest entries to include (0: all)")
 
     p = command("changes", cmd_changes, "entries added or changed on this branch")
     p.add_argument("--base", help="branch to compare against (default: the main branch)")

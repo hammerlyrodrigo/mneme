@@ -91,7 +91,8 @@ def build_brief(
             out.append(f"Main ({main}) handover: {summary}")
         if branch:
             try:
-                changed = [c.entry for c in branch_changes(store, main) if c.entry]
+                changed = [c.entry for c in branch_changes(store, main)
+                           if c.entry and c.kind in ("added", "changed")]
             except ChangesError:
                 changed = []
             if changed:

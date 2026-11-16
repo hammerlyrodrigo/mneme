@@ -22,3 +22,10 @@
   or handover.
 - The AGENTS.md block is cut to a few lines; the full guidance moves to the
   Claude Code skill and `mneme new --help`.
+- `archive` moves inactive entries, unchanged, to `.memory/archive/<type>s/`
+  (`--inactive` for all of them, `--restore` to move back). `show` and `--all`
+  still find them; `changes` reports moves as archived or restored.
+- `dream` prints a consolidation prompt for an agent: the real commands and
+  the active entries, likely overlaps grouped first. It changes nothing.
+- `migrate --from <entries.jsonl>` imports a mneme v0 log, keeping legacy ids
+  and authors and reporting every status it maps; `--dry-run` writes nothing.

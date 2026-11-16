@@ -16,7 +16,7 @@ class ChangesError(Exception):
 
 @dataclass
 class Change:
-    kind: str  # "added", "changed" or "deleted"
+    kind: str  # "added", "changed", "deleted", "archived" or "restored"
     path: Path
     entry: Entry | None  # None for a deleted or unreadable file
 
@@ -69,16 +69,37 @@ def branch_changes(store: Store, base: str) -> list[Change]:
     """Entry files changed on this branch, in creation order (deleted ones last)."""
     kinds = changed_paths(store.root, base)
     by_path = {e.path.resolve(): e for e in store.load().entries if e.path}
-    entry_dirs = {store.type_dir(t).resolve() for t in TYPES}
+    live_dirs = {store.type_dir(t).resolve() for t in TYPES}
+    archive_dirs = {store.archive_dir(t).resolve() for t in TYPES}
     changes: list[Change] = []
     for rel, kind in kinds.items():
         path = (store.root / rel).resolve()
-        if path.suffix != ".md" or path.parent not in entry_dirs:
+        if path.suffix != ".md" or path.parent not in live_dirs | archive_dirs:
             continue
         changes.append(Change(kind, path, None if kind == "deleted" else by_path.get(path)))
+    changes = _pair_moves(changes, archive_dirs)
     changes.sort(key=lambda c: (c.entry is None, c.entry.created_dt if c.entry else 0, str(c.path)))
     return changes
 
+
+def _pair_moves(changes: list[Change], archive_dirs: set[Path]) -> list[Change]:
+    """A file deleted in one place and added under the same name in the other is one move."""
+    deleted = {(c.path.name, c.path.parent in archive_dirs): c for c in changes if c.kind == "deleted"}
+    paired: list[Change] = []
+    for change in changes:
+        if change.kind == "added":
+            in_archive = change.path.parent in archive_dirs
+            source = deleted.pop((change.path.name, not in_archive), None)
+            if source is not None:
+                paired.append(Change("archived" if in_archive else "restored", change.path, change.entry))
+                continue
+        paired.append(change)
+    gone = {id(c) for c in deleted.values()}
+    return [c for c in paired if c.kind != "deleted" or id(c) in gone]
+
+
+# Moves into or out of the archive: counted in the PR block, not listed.
+MOVES = ("archived", "restored")
 
 HEADINGS = {
     "decision": "Decisions",
@@ -103,10 +124,15 @@ def render_text(changes: list[Change], root: Path) -> str:
 
 def render_markdown(changes: list[Change]) -> str:
     """A block for a PR description: what this branch decided, learned and left open."""
-    entries = [c.entry for c in changes if c.entry]
-    if not entries:
+    entries = [c.entry for c in changes if c.entry and c.kind not in MOVES]
+    moved = [c for c in changes if c.kind in MOVES]
+    if not entries and not moved:
         return ""
     lines = ["### Project memory", ""]
+    for kind in MOVES:
+        count = sum(1 for c in moved if c.kind == kind)
+        if count:
+            lines += [f"{kind.capitalize()} {count} entr{'ies' if count > 1 else 'y'}.", ""]
     for entry_type, heading in HEADINGS.items():
         group = [e for e in entries if e.type == entry_type]
         if group:
