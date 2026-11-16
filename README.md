@@ -69,6 +69,10 @@ From then on, the agent follows a simple routine:
    keeping.
 4. **Hand over.** `mneme handover --summary ... --next ...` before stopping.
 
+The first three, as they look in a terminal (real output, about 15 seconds):
+
+![mneme brief, then recall --path src/auth/, then show: the branch handover, two ranked hits, and one decision in full](docs/demo/mneme-demo.gif)
+
 Nothing is automatic. Mneme does not watch conversations or force entries to
 be written. The agent follows the routine because the instructions ask it to,
 and people can use the same commands.
@@ -80,9 +84,9 @@ recalls what applies:
 
 ```console
 $ mneme recall --path src/auth/
-L-4c1e9a  Browser storage is readable by scripts
+L-3b14b7  Browser storage is readable by scripts
     Anything kept in browser storage can be read by any script on the page
-Q-3c8d21  Where should session tokens live?
+Q-1fd367  Where should session tokens live?
 ```
 
 The work settles that open question, and the agent records the result and
@@ -94,7 +98,7 @@ mneme new decision --title "Session token storage" \
   --decision "Use secure, HTTP-only cookies" \
   --summary "Session tokens stay out of browser storage" \
   --links src/auth/session.py
-mneme resolve Q-3c8d21 --answer "HTTP-only cookies" --decision D-7f3a2c
+mneme resolve Q-1fd367 --answer "HTTP-only cookies" --decision D-d40a40
 ```
 
 The decision is a Markdown file on the branch, so it goes into the pull request
