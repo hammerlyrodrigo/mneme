@@ -1,17 +1,14 @@
 ---
 branch: archive-dream-migrate
-updated: 2026-11-12T08:04:44Z
+updated: 2026-11-16T08:08:58Z
 author: Rodrigo Hammerly
+agent: claude-code
 ---
 
 ## Summary
 
-Reorganized Mneme presentation into slide content and distinct voice-over, with setup and command examples.
-
-## Done
-
-Added nine slides with explicit on-screen material, voice-over, demo callouts, SDD comparison, and backup Q&A.
+Expanded README using the video script: video link, why, what it keeps and leaves out, quick start with the brief/recall/record/hand over routine, the session-token example, how it works, limits, and how it fits beside specs, issues and skills. Command reference kept at the end.
 
 ## Next
 
-Presenter can adapt demo fixture and timings to the live audience.
+Check the README renders well on GitHub (logo is charcoal, may be faint in dark mode); review wording; commit.
